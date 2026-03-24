@@ -1,0 +1,120 @@
+# .NET / C#
+bin/
+obj/
+*.dll
+*.exe
+*.o
+*.so
+*.dylib
+*.user
+*.suo
+*.sln.docstates
+.vs/
+.vscode/
+*.VC.db
+*.VC.VC.opendb
+*.opendb
+.idea/
+*.sln.iml
+
+# ReSharper / Rider
+.idea/
+*.resharper
+*.resharper.user
+*.DotSettings
+*.DotSettings.user
+_ReSharper*/
+
+# Publishing
+PublishProfiles/
+publish/
+*.PublishSettings
+*.pubxml
+*.azurePubxml
+
+# Entity Framework
+Migrations/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Node / Angular
+node_modules/
+npm-debug.log
+npm-debug.log.*
+yarn-error.log
+dist/
+.angular/
+.nyc_output/
+coverage/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.json
+!appsettings.json
+
+# Secrets
+*.pfx
+*.key
+*.pem
+secrets.json
+launchSettings.json
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+.vs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# Test results
+TestResults/
+*.trx
+.coverage/
+
+# Yarn
+yarn.lock
+pnpm-lock.yaml
+
+# Installation
+dist/
+out/

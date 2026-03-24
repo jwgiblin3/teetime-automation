@@ -1,0 +1,190 @@
+================================================================================
+TeeTimeAutomator - Newly Created Project Files
+================================================================================
+Date: 2026-03-23
+Status: Complete
+
+================================================================================
+PROJECT ROOT LEVEL FILES
+================================================================================
+
+1. TeeTimeAutomator.sln
+   - Visual Studio solution file
+   - References TeeTimeAutomator.API project
+   - Contains Debug and Release configurations
+
+2. .gitignore
+   - Comprehensive .gitignore for .NET + Angular + Docker
+   - Covers: bin/, obj/, node_modules/, dist/
+   - Excludes: appsettings.*.json, *.pfx, *.key, .env files
+   - IDE exclusions: .vs/, .idea/, .vscode/
+
+3. README.md (Root)
+   - Comprehensive project documentation
+   - 800+ lines covering all aspects
+   - Includes: overview, architecture diagram, quick start, manual setup
+   - Tech stack table with versions
+   - Environment variables reference
+   - Supported golf platforms table
+   - Step-by-step automated booking process explanation
+   - Development roadmap (Phase 1/2/3)
+   - Contributing guidelines and troubleshooting
+
+================================================================================
+DATABASE FILES
+================================================================================
+
+4. database/001_initial_schema.sql
+   - Complete SQL Server schema creation script
+   - 6 Tables with full DDL:
+     * Users (UserId, Email, PasswordHash, FirstName, LastName, IsAdmin, IsActive, CreatedAt, UpdatedAt)
+     * Courses (CourseId, Name, Location, Platform, PlatformCourseId, Holes, Par, Slope, Rating, IsActive, CreatedAt, UpdatedAt)
+     * UserCourseCredentials (CredentialId, UserId, CourseId, PlatformUsername, PlatformPassword, HandicapIndex, IsActive, CreatedAt, UpdatedAt)
+     * BookingRequests (RequestId, UserId, CourseId, PreferredPlayDates, PreferredStartTimes, NumberOfPlayers, BookingWindowStart, BookingWindowEnd, MinimumGolfers, MaximumGolfers, CourseHolePreference, WeekdayOnly, WeekendOnly, IsActive, CreatedAt, UpdatedAt)
+     * BookingResults (ResultId, RequestId, UserId, CourseId, AttemptedDate, AttemptedStartTime, AttemptedNumberOfPlayers, Status, ConfirmationNumber, PlatformBookingId, ErrorMessage, BookingPrice, AttemptedAt, CompletedAt)
+     * AuditLogs (LogId, UserId, Action, EntityType, EntityId, OldValues, NewValues, IpAddress, UserAgent, CreatedAt)
+   - All column types use proper SQL Server types (UNIQUEIDENTIFIER for PKs, NVARCHAR, DATETIME2, BIT, INT, DECIMAL)
+   - Primary keys and foreign key constraints defined
+   - Unique constraints for data integrity
+   - Comprehensive indexes for query performance
+   - Comments explaining each table
+   - Seed data:
+     * Admin user: admin@teetime.com with bcrypt password hash
+     * 4 courses: Paramus Golf (CPS Golf), Sunnybrook (GolfNow), Eagle Ridge (TeeSnap), Meadowbrook (ForeUp)
+
+5. database/002_hangfire_tables.sql
+   - Hangfire configuration documentation
+   - Explains automatic table creation process
+   - Lists tables created by Hangfire:
+     * HangfireCounter, HangfireHash, HangfireJob, HangfireJobParameter
+     * HangfireJobQueue, HangfireList, HangfireServer, HangfireSet, HangfireState
+   - Provides recommended custom indexes for production performance:
+     * IX_HangfireJobQueue_FetchedAt_Queue
+     * IX_HangfireJob_StateName
+     * IX_HangfireState_JobId_CreatedAt
+     * IX_HangfireServer_LastHeartbeat
+   - Configuration notes and job retention policy information
+
+================================================================================
+DOCKER & CONTAINERIZATION
+================================================================================
+
+6. docker-compose.yml
+   - Complete orchestration for all services
+   - Services defined:
+     * db (SQL Server 2022)
+     * api (.NET 8 API)
+     * web (Angular SPA)
+   - Environment variables for all services
+   - Health checks configured
+   - Volumes for SQL Server persistence
+   - Custom network (teetime-network) for service communication
+   - Restart policies for reliability
+   - Proper service dependencies and startup order
+
+7. api/TeeTimeAutomator.API/Dockerfile
+   - Multi-stage build for optimization
+   - Build stage: SDK 8.0
+     * Restores dependencies
+     * Publishes release build
+     * Installs Playwright browsers
+   - Runtime stage: .NET 8 ASP.NET runtime
+     * Minimal dependencies
+     * Copies build output
+     * Sets entrypoint for API
+
+8. web/Dockerfile
+   - Multi-stage Angular build
+   - Build stage: Node 20 Alpine
+     * Installs dependencies
+     * Builds Angular project
+   - Runtime stage: Nginx Alpine
+     * Serves static files
+     * Includes nginx.conf for routing
+     * Minimal final image
+
+9. web/nginx.conf
+   - Nginx configuration for Angular SPA
+   - Gzip compression enabled
+   - Cache control headers for static assets:
+     * 1-year cache for versioned JS/CSS
+     * No-cache for index.html
+   - API proxy configuration (/api/ → http://api:8080/api/)
+   - SPA routing with fallback to index.html
+   - Proxy headers for real IP tracking
+   - Hidden file protection
+   - Timeout configuration for long-running requests
+
+================================================================================
+ENTITY FRAMEWORK & DATABASE MIGRATIONS
+================================================================================
+
+10. api/TeeTimeAutomator.API/Data/Migrations/InitialCreate.cs
+    - EF Core migration file (proper EF pattern with Up() and Down() methods)
+    - Complete schema creation through EF:
+      * Users table with indexes and constraints
+      * Courses table with unique composite index
+      * UserCourseCredentials table with FKs and unique constraint
+      * BookingRequests table with FKs and indexes
+      * BookingResults table with FKs and status index
+      * AuditLogs table with FKs and entity tracking indexes
+    - All column definitions with types and constraints
+    - SQL Server specific defaults (GETUTCDATE(), NEWID())
+    - Proper ReferentialAction settings (Cascade, SetNull)
+    - Comments explaining each table's purpose
+    - Can be applied via: dotnet ef database update
+
+================================================================================
+FILE STATISTICS
+================================================================================
+
+Total New Files Created: 10
+Total Size: ~200+ KB
+
+Breakdown:
+  - Configuration Files: 3 (docker-compose.yml, .gitignore, TeeTimeAutomator.sln)
+  - Documentation: 1 (README.md)
+  - Database: 2 (001_initial_schema.sql, 002_hangfire_tables.sql)
+  - Docker: 3 (API Dockerfile, Web Dockerfile, nginx.conf)
+  - Migrations: 1 (InitialCreate.cs)
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Verify files were created successfully:
+   cd /sessions/pensive-gracious-hawking/mnt/outputs/TeeTimeAutomator
+   ls -la
+
+2. Review the files:
+   - Read README.md for comprehensive documentation
+   - Review docker-compose.yml for service configuration
+   - Check 001_initial_schema.sql for database structure
+   - Inspect InitialCreate.cs for EF migrations
+
+3. Start local development with Docker:
+   docker-compose up -d
+
+4. Apply database schema:
+   - Docker Compose auto-applies via EF
+   - Or manually: dotnet ef database update
+
+5. Access the application:
+   - Web UI: http://localhost:4200
+   - API Docs: http://localhost:5000/swagger
+   - Database: localhost:1433 (SQL Server)
+
+6. Login with default credentials:
+   - Email: admin@teetime.com
+   - Password: (Use bcrypt-compatible password for admin@teetime.com)
+
+================================================================================
+INTEGRATION WITH EXISTING FILES
+================================================================================
+
+These 10 files integrate with the previously generated files in the project:
+  - api/TeeTimeAutomator.API/ (existing C# backend)
+  - web/ (existing Angular frontend)
+  - Complete application is now ready for deployment or local development
+
+================================================================================

@@ -27,14 +27,14 @@ export class AdminService extends ApiService {
     return this.http.get<AdminUser>(this.buildUrl(`${this.adminUrl}/users/${id}`));
   }
 
-  disableUser(id: string): Observable<void> {
+  disableUser(id: number): Observable<void> {
     return this.http.post<void>(
       this.buildUrl(`${this.adminUrl}/users/${id}/disable`),
       {}
     );
   }
 
-  enableUser(id: string): Observable<void> {
+  enableUser(id: number): Observable<void> {
     return this.http.post<void>(
       this.buildUrl(`${this.adminUrl}/users/${id}/enable`),
       {}

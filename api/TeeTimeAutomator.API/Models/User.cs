@@ -51,6 +51,16 @@ public class User
     public bool IsActive { get; set; } = true;
 
     /// <summary>
+    /// Indicates whether the user account is disabled (inverse of IsActive).
+    /// </summary>
+    public bool IsDisabled => !IsActive;
+
+    /// <summary>
+    /// Timestamp when the user last logged in.
+    /// </summary>
+    public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
     /// Timestamp when the user account was created.
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
+using TeeTimeAutomator.API.Services;
+using TeeTimeAutomator.API.Models;
+using TeeTimeAutomator.API.Models.DTOs;
 
 namespace TeeTimeAutomator.API.Controllers;
 
@@ -14,46 +17,33 @@ public class AdminController : ControllerBase
 {
     private readonly ILogger<AdminController> _logger;
     private readonly IAdminService _adminService;
-    private readonly IUserService _userService;
     private readonly ICourseService _courseService;
-    private readonly IBookingService _bookingService;
 
     public AdminController(
         ILogger<AdminController> logger,
         IAdminService adminService,
-        IUserService userService,
-        ICourseService courseService,
-        IBookingService bookingService)
+        ICourseService courseService)
     {
         _logger = logger;
         _adminService = adminService;
-        _userService = userService;
         _courseService = courseService;
-        _bookingService = bookingService;
     }
 
     /// <summary>
     /// List all users with pagination
     /// </summary>
     [HttpGet("users")]
-    public async Task<ActionResult<PagedResult<UserAdminDto>>> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<ActionResult<PagedResult<AdminUserDto>>> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         try
         {
-            _logger.LogInformation("GetAllUsers: Fetching users page {Page} with page size {PageSize}", page, pageSize);
-
             if (page < 1 || pageSize < 1)
-            {
-                _logger.LogWarning("GetAllUsers: Invalid pagination parameters");
                 return BadRequest(new { message = "Invalid pagination parameters" });
-            }
 
             var result = await _adminService.GetAllUsersAsync(page, pageSize);
-            var userDtos = result.Items.Select(MapToUserAdminDto).ToList();
+            var userDtos = result.Items.Select(MapToAdminUserDto).ToList();
 
-            _logger.LogInformation("GetAllUsers: Retrieved {UserCount} users for page {Page}", userDtos.Count, page);
-
-            return Ok(new PagedResult<UserAdminDto>
+            return Ok(new PagedResult<AdminUserDto>
             {
                 Items = userDtos,
                 TotalCount = result.TotalCount,
@@ -76,17 +66,9 @@ public class AdminController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("ToggleUserStatus: Toggling status for user {UserId} to {IsDisabled}", id, request.IsDisabled);
-
             var success = await _adminService.ToggleUserStatusAsync(id, request.IsDisabled);
+            if (!success) return NotFound(new { message = "User not found" });
 
-            if (!success)
-            {
-                _logger.LogWarning("ToggleUserStatus: User {UserId} not found", id);
-                return NotFound(new { message = "User not found" });
-            }
-
-            _logger.LogInformation("ToggleUserStatus: Successfully updated user {UserId}", id);
             return Ok(new { message = request.IsDisabled ? "User disabled" : "User enabled" });
         }
         catch (Exception ex)
@@ -104,11 +86,8 @@ public class AdminController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("GetAllCourses: Fetching all courses");
             var courses = await _courseService.GetAllCoursesAsync();
-            var courseDtos = courses.Select(MapToAdminCourseDto).ToList();
-            _logger.LogInformation("GetAllCourses: Retrieved {CourseCount} courses", courseDtos.Count);
-            return Ok(courseDtos);
+            return Ok(courses.Select(MapToAdminCourseDto).ToList());
         }
         catch (Exception ex)
         {
@@ -125,22 +104,10 @@ public class AdminController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("AddCourse: Creating new course {CourseName}", request.Name);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("AddCourse: Invalid model state");
-                return BadRequest(ModelState);
-            }
-
-            var course = await _courseService.CreateCourseAsync(
-                request.Name,
-                request.Location,
-                request.Platform,
-                request.BookingUrl,
-                request.ReleaseScheduleJson);
-
-            _logger.LogInformation("AddCourse: Successfully created course {CourseId}", course.Id);
+            var course = await _courseService.CreateCourseAsync(request);
+            _logger.LogInformation("AddCourse: Successfully created course {CourseId}", course.CourseId);
             return CreatedAtAction(nameof(GetAllCourses), MapToAdminCourseDto(course));
         }
         catch (Exception ex)
@@ -162,14 +129,8 @@ public class AdminController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("GetAllBookings: Fetching bookings with filters - Status: {Status}, CourseId: {CourseId}",
-                status, courseId);
-
             var bookings = await _adminService.GetAllBookingsAsync(status, courseId, startDate, endDate);
-            var dtos = bookings.Select(MapToAdminBookingDto).ToList();
-
-            _logger.LogInformation("GetAllBookings: Retrieved {BookingCount} bookings", dtos.Count);
-            return Ok(dtos);
+            return Ok(bookings.Select(MapToAdminBookingDto).ToList());
         }
         catch (Exception ex)
         {
@@ -186,21 +147,8 @@ public class AdminController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("GetSystemStats: Fetching system statistics");
-
             var stats = await _adminService.GetSystemStatsAsync();
-
-            _logger.LogInformation("GetSystemStats: Retrieved statistics");
-            return Ok(new SystemStatsDto
-            {
-                TotalUsers = stats.TotalUsers,
-                TotalCourses = stats.TotalCourses,
-                BookingsToday = stats.BookingsToday,
-                SuccessfulBookingsToday = stats.SuccessfulBookingsToday,
-                SuccessRatePercent = stats.SuccessRatePercent,
-                ActiveBookings = stats.ActiveBookings,
-                FailedBookings = stats.FailedBookings
-            });
+            return Ok(stats);
         }
         catch (Exception ex)
         {
@@ -213,24 +161,17 @@ public class AdminController : ControllerBase
     /// Get audit logs with pagination
     /// </summary>
     [HttpGet("logs")]
-    public async Task<ActionResult<PagedResult<AuditLogDto>>> GetAuditLogs([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    public async Task<ActionResult<PagedResult<AdminAuditLogDto>>> GetAuditLogs([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         try
         {
-            _logger.LogInformation("GetAuditLogs: Fetching audit logs page {Page}", page);
-
             if (page < 1 || pageSize < 1)
-            {
-                _logger.LogWarning("GetAuditLogs: Invalid pagination parameters");
                 return BadRequest(new { message = "Invalid pagination parameters" });
-            }
 
             var result = await _adminService.GetAuditLogsAsync(page, pageSize);
             var logDtos = result.Items.Select(MapToAuditLogDto).ToList();
 
-            _logger.LogInformation("GetAuditLogs: Retrieved {LogCount} logs for page {Page}", logDtos.Count, page);
-
-            return Ok(new PagedResult<AuditLogDto>
+            return Ok(new PagedResult<AdminAuditLogDto>
             {
                 Items = logDtos,
                 TotalCount = result.TotalCount,
@@ -245,87 +186,58 @@ public class AdminController : ControllerBase
         }
     }
 
-    private UserAdminDto MapToUserAdminDto(User user)
+    private static AdminUserDto MapToAdminUserDto(User user) => new AdminUserDto
     {
-        return new UserAdminDto
-        {
-            Id = user.Id,
-            Email = user.Email,
-            FirstName = user.FirstName,
-            LastName = user.LastName,
-            IsAdmin = user.IsAdmin,
-            IsDisabled = user.IsDisabled,
-            CreatedAt = user.CreatedAt,
-            LastLoginAt = user.LastLoginAt
-        };
-    }
+        UserId = user.UserId,
+        Email = user.Email,
+        FirstName = user.FirstName,
+        LastName = user.LastName,
+        PhoneNumber = user.PhoneNumber,
+        IsAdmin = user.IsAdmin,
+        IsActive = user.IsActive,
+        HasGoogleOAuth = !string.IsNullOrEmpty(user.GoogleOAuthId),
+        CreatedAt = user.CreatedAt,
+        UpdatedAt = user.UpdatedAt
+    };
 
-    private AdminCourseDto MapToAdminCourseDto(Course course)
+    private static AdminCourseDto MapToAdminCourseDto(CourseDto course) => new AdminCourseDto
     {
-        return new AdminCourseDto
-        {
-            Id = course.Id,
-            Name = course.Name,
-            Location = course.Location,
-            Platform = course.Platform.ToString(),
-            BookingUrl = course.BookingUrl,
-            CreatedAt = course.CreatedAt
-        };
-    }
+        Id = course.CourseId,
+        Name = course.CourseName,
+        Platform = course.Platform.ToString(),
+        BookingUrl = course.BookingUrl,
+        CreatedAt = course.CreatedAt
+    };
 
-    private AdminBookingDto MapToAdminBookingDto(BookingRequest booking)
+    private static AdminBookingDto MapToAdminBookingDto(BookingRequest booking) => new AdminBookingDto
     {
-        return new AdminBookingDto
-        {
-            Id = booking.Id,
-            UserId = booking.UserId,
-            UserEmail = booking.User?.Email ?? "Unknown",
-            CourseId = booking.CourseId,
-            CourseName = booking.Course?.Name ?? "Unknown",
-            PreferredDate = booking.PreferredDate,
-            PreferredTime = booking.PreferredTime,
-            Players = booking.Players,
-            Status = booking.Status.ToString(),
-            CreatedAt = booking.CreatedAt,
-            BookedAt = booking.BookingResult?.BookedAt,
-            ConfirmationNumber = booking.BookingResult?.ConfirmationNumber
-        };
-    }
+        RequestId = booking.RequestId,
+        UserId = booking.UserId,
+        UserEmail = booking.User?.Email ?? "Unknown",
+        CourseId = booking.CourseId,
+        CourseName = booking.Course?.CourseName ?? "Unknown",
+        Platform = booking.Course?.Platform ?? default,
+        DesiredDate = booking.DesiredDate,
+        PreferredTime = booking.PreferredTime,
+        NumberOfPlayers = booking.NumberOfPlayers,
+        Status = booking.Status,
+        ScheduledFireTime = booking.ScheduledFireTime,
+        HangfireJobId = booking.HangfireJobId,
+        CreatedAt = booking.CreatedAt,
+        UpdatedAt = booking.UpdatedAt
+    };
 
-    private AuditLogDto MapToAuditLogDto(AuditLog log)
+    private static AdminAuditLogDto MapToAuditLogDto(AuditLog log) => new AdminAuditLogDto
     {
-        return new AuditLogDto
-        {
-            Id = log.Id,
-            UserId = log.UserId,
-            Action = log.Action,
-            ResourceType = log.ResourceType,
-            ResourceId = log.ResourceId,
-            Details = log.Details,
-            IpAddress = log.IpAddress,
-            Timestamp = log.Timestamp
-        };
-    }
+        Id = log.LogId,
+        UserId = log.UserId,
+        RequestId = log.RequestId,
+        EventType = log.EventType.ToString(),
+        Message = log.Message,
+        CreatedAt = log.CreatedAt
+    };
 }
 
-/// <summary>
-/// Data transfer object for user in admin context
-/// </summary>
-public class UserAdminDto
-{
-    public int Id { get; set; }
-    public string Email { get; set; } = string.Empty;
-    public string FirstName { get; set; } = string.Empty;
-    public string LastName { get; set; } = string.Empty;
-    public bool IsAdmin { get; set; }
-    public bool IsDisabled { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime? LastLoginAt { get; set; }
-}
-
-/// <summary>
-/// Data transfer object for course in admin context
-/// </summary>
 public class AdminCourseDto
 {
     public int Id { get; set; }
@@ -336,72 +248,17 @@ public class AdminCourseDto
     public DateTime CreatedAt { get; set; }
 }
 
-/// <summary>
-/// Data transfer object for booking in admin context
-/// </summary>
-public class AdminBookingDto
+public class AdminAuditLogDto
 {
     public int Id { get; set; }
-    public int UserId { get; set; }
-    public string UserEmail { get; set; } = string.Empty;
-    public int CourseId { get; set; }
-    public string CourseName { get; set; } = string.Empty;
-    public DateTime PreferredDate { get; set; }
-    public TimeSpan PreferredTime { get; set; }
-    public int Players { get; set; }
-    public string Status { get; set; } = string.Empty;
+    public int? UserId { get; set; }
+    public int? RequestId { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
-    public DateTime? BookedAt { get; set; }
-    public string? ConfirmationNumber { get; set; }
 }
 
-/// <summary>
-/// System statistics data transfer object
-/// </summary>
-public class SystemStatsDto
-{
-    public int TotalUsers { get; set; }
-    public int TotalCourses { get; set; }
-    public int BookingsToday { get; set; }
-    public int SuccessfulBookingsToday { get; set; }
-    public decimal SuccessRatePercent { get; set; }
-    public int ActiveBookings { get; set; }
-    public int FailedBookings { get; set; }
-}
-
-/// <summary>
-/// Audit log data transfer object
-/// </summary>
-public class AuditLogDto
-{
-    public int Id { get; set; }
-    public int UserId { get; set; }
-    public string Action { get; set; } = string.Empty;
-    public string ResourceType { get; set; } = string.Empty;
-    public int? ResourceId { get; set; }
-    public string? Details { get; set; }
-    public string? IpAddress { get; set; }
-    public DateTime Timestamp { get; set; }
-}
-
-/// <summary>
-/// Generic paged result container
-/// </summary>
-public class PagedResult<T>
-{
-    public List<T> Items { get; set; } = new();
-    public int TotalCount { get; set; }
-    public int Page { get; set; }
-    public int PageSize { get; set; }
-}
-
-/// <summary>
-/// Request model for toggling user status
-/// </summary>
 public class ToggleUserStatusRequest
 {
-    /// <summary>
-    /// Whether to disable the user (true = disabled, false = enabled)
-    /// </summary>
     public bool IsDisabled { get; set; }
 }

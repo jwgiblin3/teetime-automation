@@ -1,33 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using TeeTimeAutomator.API.Models.Enums;
 
 namespace TeeTimeAutomator.API.Adapters;
-
-/// <summary>
-/// Enumeration of supported golf booking platforms
-/// </summary>
-public enum CoursePlatform
-{
-    /// <summary>
-    /// CPS Golf booking system (paramus.cps.golf style)
-    /// </summary>
-    CpsGolf,
-
-    /// <summary>
-    /// GolfNow booking system (golfnow.com)
-    /// </summary>
-    GolfNow,
-
-    /// <summary>
-    /// TeeSnap booking system
-    /// </summary>
-    TeeSnap,
-
-    /// <summary>
-    /// ForeUp booking system
-    /// </summary>
-    ForeUp
-}
 
 /// <summary>
 /// Factory for creating appropriate booking adapters based on platform
@@ -60,7 +35,7 @@ public class BookingAdapterFactory : IBookingAdapterFactory
     {
         _logger.LogInformation("Creating booking adapter for platform: {Platform}", platform);
 
-        var adapter = platform switch
+        IBookingAdapter adapter = platform switch
         {
             CoursePlatform.CpsGolf => _serviceProvider.GetRequiredService<CpsGolfAdapter>(),
             CoursePlatform.GolfNow => _serviceProvider.GetRequiredService<GolfNowAdapter>(),

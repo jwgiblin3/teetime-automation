@@ -18,6 +18,11 @@ public class Course
     public string CourseName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Physical location or address of the golf course.
+    /// </summary>
+    public string Location { get; set; } = string.Empty;
+
+    /// <summary>
     /// URL to the course's booking page.
     /// </summary>
     public string BookingUrl { get; set; } = string.Empty;

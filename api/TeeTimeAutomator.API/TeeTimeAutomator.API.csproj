@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -7,6 +7,7 @@
     <RootNamespace>TeeTimeAutomator.API</RootNamespace>
     <AssemblyName>TeeTimeAutomator.API</AssemblyName>
     <Version>1.0.0</Version>
+    <UserSecretsId>0abb434c-3809-4ac4-a9e9-824405fbd42c</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

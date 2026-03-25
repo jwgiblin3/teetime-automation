@@ -58,6 +58,11 @@ public class BookingRequest
     public string? HangfireJobId { get; set; }
 
     /// <summary>
+    /// Last error message from a failed booking attempt.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
     /// Timestamp when the booking request was created.
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

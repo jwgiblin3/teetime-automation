@@ -38,7 +38,7 @@ public class CalendarService : ICalendarService
                 Description = $"Tee time booking confirmation: {confirmationNumber}",
                 LastModified = new CalDateTime(DateTime.UtcNow),
                 Location = courseName,
-                Organizer = new Attendee { Value = new Uri($"mailto:{userEmail}") },
+                Organizer = new Organizer { Value = new Uri($"mailto:{userEmail}") },
                 Summary = $"Tee Time at {courseName}",
                 Start = new CalDateTime(teeTime),
                 End = new CalDateTime(teeTime.AddMinutes(90)),

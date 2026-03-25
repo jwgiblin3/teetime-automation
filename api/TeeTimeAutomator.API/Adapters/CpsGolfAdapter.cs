@@ -32,7 +32,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             if (_browser == null)
             {
                 var playwright = await Playwright.CreateAsync();
-                _browser = await playwright.Chromium.LaunchAsync(new BrowserLaunchOptions
+                _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Headless = true,
                     Args = new[] { "--disable-blink-features=AutomationControlled" }
@@ -46,7 +46,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             // Step 1: Navigate to verify-email page
             var loginUrl = $"{url.TrimEnd('/')}/auth/verify-email";
             _logger.LogInformation("Navigating to {LoginUrl}", loginUrl);
-            await _page.GotoAsync(loginUrl, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(loginUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Step 2: Enter email
             var emailInput = await _page.QuerySelectorAsync("input[type='email']");
@@ -128,7 +128,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             // Navigate to search page
             var searchUrl = $"{_currentBaseUrl?.TrimEnd('/')}/search-teetime";
-            await _page.GotoAsync(searchUrl, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(searchUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Fill date picker
             var dateInput = await _page.QuerySelectorAsync("input[type='date']");

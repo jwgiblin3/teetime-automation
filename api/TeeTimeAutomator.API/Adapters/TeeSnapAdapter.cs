@@ -33,7 +33,7 @@ public class TeeSnapAdapter : IBookingAdapter, IAsyncDisposable
             if (_browser == null)
             {
                 var playwright = await Playwright.CreateAsync();
-                _browser = await playwright.Chromium.LaunchAsync(new BrowserLaunchOptions
+                _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Headless = true,
                     Args = new[] { "--disable-blink-features=AutomationControlled" }
@@ -46,7 +46,7 @@ public class TeeSnapAdapter : IBookingAdapter, IAsyncDisposable
 
             // Navigate to the TeeSnap login page
             _logger.LogInformation("Navigating to TeeSnap login at {Url}", url);
-            await _page.GotoAsync(url, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Look for email input
             var emailInput = await _page.QuerySelectorAsync("input[type='email'], input[name='email']");
@@ -129,7 +129,7 @@ public class TeeSnapAdapter : IBookingAdapter, IAsyncDisposable
             // Navigate to search/booking page
             var searchUrl = _currentBaseUrl?.TrimEnd('/') ?? "https://teesnap.com";
             _logger.LogInformation("Navigating to TeeSnap search page: {SearchUrl}", searchUrl);
-            await _page.GotoAsync(searchUrl, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(searchUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Set date filter
             var dateInput = await _page.QuerySelectorAsync("input[type='date'], input[name='date']");

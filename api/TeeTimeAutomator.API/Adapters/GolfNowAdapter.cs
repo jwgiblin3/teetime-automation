@@ -30,7 +30,7 @@ public class GolfNowAdapter : IBookingAdapter, IAsyncDisposable
             if (_browser == null)
             {
                 var playwright = await Playwright.CreateAsync();
-                _browser = await playwright.Chromium.LaunchAsync(new BrowserLaunchOptions
+                _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Headless = true,
                     Args = new[] { "--disable-blink-features=AutomationControlled" }
@@ -43,7 +43,7 @@ public class GolfNowAdapter : IBookingAdapter, IAsyncDisposable
 
             // Navigate to GolfNow login
             _logger.LogInformation("Navigating to GolfNow sign-in page");
-            await _page.GotoAsync("https://www.golfnow.com/signin", new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync("https://www.golfnow.com/signin", new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Enter email
             var emailInput = await _page.QuerySelectorAsync("input[type='email'], input[name='email']");
@@ -130,7 +130,7 @@ public class GolfNowAdapter : IBookingAdapter, IAsyncDisposable
                 date.Date, preferredTime, players);
 
             // Navigate to tee times search
-            await _page.GotoAsync("https://www.golfnow.com/search/teetime", new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync("https://www.golfnow.com/search/teetime", new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Set date
             var dateInput = await _page.QuerySelectorAsync("input[type='date'], input[name='date']");

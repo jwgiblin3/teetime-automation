@@ -30,7 +30,6 @@ public class CalendarService : ICalendarService
             var calendar = new Calendar();
             calendar.Version = "2.0";
             calendar.ProductId = "-//TeeTimeAutomator//EN";
-            calendar.CalScale = "GREGORIAN";
 
             var calEvent = new CalendarEvent
             {

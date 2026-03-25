@@ -32,7 +32,7 @@ public class ForeUpAdapter : IBookingAdapter, IAsyncDisposable
             if (_browser == null)
             {
                 var playwright = await Playwright.CreateAsync();
-                _browser = await playwright.Chromium.LaunchAsync(new BrowserLaunchOptions
+                _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Headless = true,
                     Args = new[] { "--disable-blink-features=AutomationControlled" }
@@ -46,7 +46,7 @@ public class ForeUpAdapter : IBookingAdapter, IAsyncDisposable
             // Navigate to ForeUp login
             var loginUrl = url.Contains("/login") ? url : $"{url.TrimEnd('/')}/login";
             _logger.LogInformation("Navigating to ForeUp login page: {LoginUrl}", loginUrl);
-            await _page.GotoAsync(loginUrl, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(loginUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Find and fill email field
             var emailInput = await _page.QuerySelectorAsync("input[type='email'], input[name='email']");
@@ -129,7 +129,7 @@ public class ForeUpAdapter : IBookingAdapter, IAsyncDisposable
             // Navigate to booking/search page
             var bookingUrl = _currentBaseUrl?.TrimEnd('/') ?? "https://foreup.com";
             _logger.LogInformation("Navigating to ForeUp booking page: {BookingUrl}", bookingUrl);
-            await _page.GotoAsync(bookingUrl, new NavigationWaitUntilOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync(bookingUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Set date
             var dateInput = await _page.QuerySelectorAsync("input[type='date'], input[name='date']");

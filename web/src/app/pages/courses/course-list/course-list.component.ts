@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatMenuModule } from '@angular/material/menu';
 import { CourseService } from '../../../services/course.service';
 import { Course, getPlatformLabel } from '../../../models/course.models';
 
@@ -19,7 +20,8 @@ import { Course, getPlatformLabel } from '../../../models/course.models';
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
-    MatChipsModule
+    MatChipsModule,
+    MatMenuModule
   ],
   template: `
     <div class="courses-container">

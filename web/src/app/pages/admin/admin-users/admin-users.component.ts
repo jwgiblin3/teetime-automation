@@ -7,6 +7,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AdminService } from '../../../services/admin.service';
 import { AdminUser } from '../../../models/admin.models';
 
@@ -21,7 +22,8 @@ import { AdminUser } from '../../../models/admin.models';
     MatCardModule,
     MatPaginatorModule,
     MatProgressSpinnerModule,
-    MatSlideToggleModule
+    MatSlideToggleModule,
+    MatTooltipModule
   ],
   template: `
     <div class="admin-users-container">
@@ -225,13 +227,13 @@ export class AdminUsersComponent implements OnInit {
 
   toggleUserStatus(user: AdminUser): void {
     if (user.isDisabled) {
-      this.adminService.enableUser(user.id).subscribe({
+      this.adminService.enableUser(user.userId).subscribe({
         next: () => {
           this.loadUsers();
         }
       });
     } else {
-      this.adminService.disableUser(user.id).subscribe({
+      this.adminService.disableUser(user.userId).subscribe({
         next: () => {
           this.loadUsers();
         }
@@ -239,5 +241,3 @@ export class AdminUsersComponent implements OnInit {
     }
   }
 }
-
-import { MatTooltipModule } from '@angular/material/tooltip';

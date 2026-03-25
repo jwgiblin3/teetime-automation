@@ -85,7 +85,7 @@ import { Course } from '../../../models/course.models';
                     matInput
                     type="email"
                     formControlName="email"
-                    disabled
+                    [attr.disabled]="'disabled'"
                   />
                   <mat-hint>Email cannot be changed</mat-hint>
                 </mat-form-field>
@@ -434,7 +434,7 @@ export class ProfileComponent implements OnInit {
       firstName: [this.currentUser?.firstName || '', Validators.required],
       lastName: [this.currentUser?.lastName || '', Validators.required],
       email: [this.currentUser?.email || '', Validators.required],
-      phone: [this.currentUser?.phone || '', Validators.required]
+      phone: [this.currentUser?.phoneNumber || '', Validators.required]
     });
 
     this.passwordForm = this.fb.group(

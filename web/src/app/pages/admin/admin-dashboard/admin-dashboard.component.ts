@@ -471,6 +471,6 @@ export class AdminDashboardComponent implements OnInit {
       }
     };
 
-    return (titles[action] && titles[action][resourceType]) || titles[action]?.default || 'Activity';
+    return (titles[action] && titles[action][resourceType]) || titles[action]?.['default'] || 'Activity';
   }
 }

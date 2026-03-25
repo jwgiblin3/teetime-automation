@@ -14,21 +14,6 @@ $warning-orange: #ff9800;
 $success-green: #4caf50;
 $info-blue: #2196f3;
 
-// Define Material theme colors
-$app-primary: mat-palette($mat-green, 700);
-$app-accent: mat-palette($mat-light-green, 600);
-$app-warn: mat-palette($mat-red);
-
-$app-theme: mat-dark-theme((
-  color: (
-    primary: $app-primary,
-    accent: $app-accent,
-    warn: $app-warn
-  )
-));
-
-@include angular-material-theme($app-theme);
-
 * {
   margin: 0;
   padding: 0;

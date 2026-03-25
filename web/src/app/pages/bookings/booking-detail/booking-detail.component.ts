@@ -175,7 +175,7 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
               <div class="result-item" *ngIf="booking.bookingResult.totalCost">
                 <span class="result-label">Total Cost</span>
                 <span class="result-value">
-                  ${{ booking.bookingResult.totalCost }}
+                  {{ booking.bookingResult.totalCost | currency:'USD' }}
                 </span>
               </div>
 

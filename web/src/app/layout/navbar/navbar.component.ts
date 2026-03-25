@@ -5,6 +5,8 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatIconModule } from '@angular/material/icon';
+import { MatDividerModule } from '@angular/material/divider';
+import { map } from 'rxjs/operators';
 import { AuthService } from '../../services/auth.service';
 import { User } from '../../models/auth.models';
 
@@ -17,7 +19,8 @@ import { User } from '../../models/auth.models';
     MatToolbarModule,
     MatButtonModule,
     MatMenuModule,
-    MatIconModule
+    MatIconModule,
+    MatDividerModule
   ],
   template: `
     <mat-toolbar color="primary" class="navbar">
@@ -195,5 +198,3 @@ export class NavbarComponent implements OnInit {
     this.router.navigate(['/login']);
   }
 }
-
-import { map } from 'rxjs/operators';

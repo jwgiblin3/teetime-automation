@@ -1,13 +1,15 @@
 using System.Text;
 using AutoMapper;
 using Hangfire;
-using Hangfire.SqlServer;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using TeeTimeAutomator.API.Data;
+using TeeTimeAutomator.API.Models;
+using TeeTimeAutomator.API.Models.DTOs;
 using TeeTimeAutomator.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,7 +24,7 @@ builder.Host.UseSerilog();
 
 // Add services
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Configure Hangfire
 builder.Services.AddHangfire(configuration =>
@@ -30,14 +32,8 @@ builder.Services.AddHangfire(configuration =>
         .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
         .UseSimpleAssemblyNameTypeSerializer()
         .UseRecommendedSerializerSettings()
-        .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection"), new SqlServerStorageOptions
-        {
-            CommandBatchTimeout = TimeSpan.FromMinutes(5),
-            SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
-            QueuePollInterval = TimeSpan.FromSeconds(15),
-            UsePageLocksOnDequeue = true,
-            DisableGlobalLocks = true
-        }));
+        .UsePostgreSqlStorage(c =>
+            c.UseNpgsqlConnection(builder.Configuration.GetConnectionString("DefaultConnection"))));
 
 builder.Services.AddHangfireServer();
 
@@ -261,7 +257,3 @@ public class AuditLogDto
     public DateTime CreatedAt { get; set; }
 }
 
-namespace TeeTimeAutomator.API
-{
-    public class User { }
-}

@@ -290,13 +290,20 @@ public class AuthService : IAuthService
             var audience = _configuration["Jwt:Audience"];
             var expiryMinutes = int.Parse(_configuration["Jwt:ExpiryMinutes"] ?? "1440");
 
+            var user = _context.Users.Find(userId)
+                ?? throw new InvalidOperationException($"User {userId} not found");
+
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
             {
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                new Claim("sub", userId.ToString())
+                new Claim("sub", userId.ToString()),
+                new Claim("email", user.Email),
+                new Claim("firstName", user.FirstName),
+                new Claim("lastName", user.LastName),
+                new Claim("role", user.IsAdmin ? "admin" : "user")
             };
 
             var token = new JwtSecurityToken(

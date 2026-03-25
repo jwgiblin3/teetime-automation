@@ -12,16 +12,20 @@ export interface RegisterRequest {
 }
 
 export interface AuthResponse {
-  token: string;
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
   user: User;
 }
 
 export interface User {
-  id: string;
+  userId: number;
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
+  phoneNumber?: string;
+  isAdmin: boolean;
+  isActive: boolean;
   role: UserRole;
   createdAt: Date;
   updatedAt: Date;

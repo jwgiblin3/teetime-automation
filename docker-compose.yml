@@ -1,36 +1,16 @@
 version: '3.8'
 services:
-  db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    environment:
-      SA_PASSWORD: "TeeTime_Dev2024!"
-      ACCEPT_EULA: "Y"
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqldata:/var/opt/mssql
-    healthcheck:
-      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "TeeTime_Dev2024!" -Q "SELECT 1" || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - teetime-network
-
   api:
     build: ./api/TeeTimeAutomator.API
     ports:
       - "5000:8080"
     environment:
-      - ConnectionStrings__DefaultConnection=Server=db;Database=TeeTimeAutomator;User Id=sa;Password=TeeTime_Dev2024!;TrustServerCertificate=True
-      - JWT__Secret=CHANGE_THIS_SECRET_KEY_MIN_32_CHARS_IN_PRODUCTION
-      - JWT__Issuer=TeeTimeAutomator
-      - JWT__Audience=TeeTimeAutomator
+      - ConnectionStrings__DefaultConnection=postgresql://postgres:[YOUR-PASSWORD]@db.srflomconujkwmrwstpm.supabase.co:5432/postgres?sslmode=require
+      - Jwt__Secret=CHANGE_THIS_SECRET_KEY_MIN_32_CHARS_IN_PRODUCTION
+      - Jwt__Issuer=TeeTimeAutomator
+      - Jwt__Audience=TeeTimeAutomator
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - teetime-network
     restart: unless-stopped
@@ -44,9 +24,6 @@ services:
     networks:
       - teetime-network
     restart: unless-stopped
-
-volumes:
-  sqldata:
 
 networks:
   teetime-network:

@@ -83,8 +83,11 @@ export class AuthService {
   }
 
   private handleAuthResponse(response: AuthResponse): void {
-    localStorage.setItem(this.tokenKey, response.token);
-    this.currentUserSubject.next(response.user);
+    localStorage.setItem(this.tokenKey, response.accessToken);
+    this.currentUserSubject.next({
+      ...response.user,
+      role: response.user.isAdmin ? UserRole.ADMIN : UserRole.USER
+    });
   }
 
   private loadUserFromToken(): void {
@@ -93,12 +96,13 @@ export class AuthService {
       try {
         const decoded = this.decodeToken(token);
         const user: User = {
-          id: decoded.sub,
+          userId: parseInt(decoded.sub, 10),
           email: decoded.email,
           firstName: decoded.firstName,
           lastName: decoded.lastName,
-          phone: '',
           role: decoded.role,
+          isAdmin: decoded.role === UserRole.ADMIN,
+          isActive: true,
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -117,12 +121,13 @@ export class AuthService {
         const now = Date.now().valueOf() / 1000;
         if (decoded.exp > now) {
           return {
-            id: decoded.sub,
+            userId: parseInt(decoded.sub, 10),
             email: decoded.email,
             firstName: decoded.firstName,
             lastName: decoded.lastName,
-            phone: '',
             role: decoded.role,
+            isAdmin: decoded.role === UserRole.ADMIN,
+            isActive: true,
             createdAt: new Date(),
             updatedAt: new Date()
           };

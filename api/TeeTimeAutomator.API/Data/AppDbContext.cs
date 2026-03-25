@@ -67,7 +67,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Email).IsUnique();
 
             // Create a unique index on GoogleOAuthId (allowing nulls)
-            entity.HasIndex(e => e.GoogleOAuthId).IsUnique().HasFilter("[GoogleOAuthId] IS NOT NULL");
+            entity.HasIndex(e => e.GoogleOAuthId).IsUnique().HasFilter("\"GoogleOAuthId\" IS NOT NULL");
 
             // Configure relationships
             entity.HasMany(e => e.UserCourseCredentials)

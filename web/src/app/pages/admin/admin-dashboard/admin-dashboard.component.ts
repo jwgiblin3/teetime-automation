@@ -41,6 +41,11 @@ import { SystemStats, AuditLog } from '../../../models/admin.models';
         <mat-spinner diameter="50"></mat-spinner>
       </div>
 
+      <div *ngIf="!loading && !stats" class="empty-state">
+        <mat-icon>bar_chart</mat-icon>
+        <p>No stats available. The API may be unreachable.</p>
+      </div>
+
       <div *ngIf="!loading && stats" class="stats-section">
         <div class="stats-grid">
           <mat-card class="stat-card">
@@ -414,6 +419,9 @@ export class AdminDashboardComponent implements OnInit {
     this.adminService.getStats().subscribe({
       next: (stats) => {
         this.stats = stats;
+      },
+      error: () => {
+        this.loading = false;
       }
     });
 

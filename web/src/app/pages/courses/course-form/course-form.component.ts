@@ -51,7 +51,7 @@ import {
           <!-- Step 1: Basic Info -->
           <mat-step label="Course Info" [stepControl]="basicForm" editable>
             <form [formGroup]="basicForm" class="step-form">
-              <mat-form-field class="full-width">
+              <mat-form-field class="full-width" appearance="outline">
                 <mat-label>Course Name</mat-label>
                 <input
                   matInput
@@ -63,7 +63,7 @@ import {
                 </mat-error>
               </mat-form-field>
 
-              <mat-form-field class="full-width">
+              <mat-form-field class="full-width" appearance="outline">
                 <mat-label>Booking URL</mat-label>
                 <input
                   matInput
@@ -76,7 +76,7 @@ import {
                 </mat-error>
               </mat-form-field>
 
-              <mat-form-field class="full-width">
+              <mat-form-field class="full-width" appearance="outline">
                 <mat-label>Booking Platform</mat-label>
                 <mat-select formControlName="platform" required>
                   <mat-option [value]="CoursePlatform.CPS_GOLF">
@@ -117,7 +117,7 @@ import {
                   When does this course release new tee times?
                 </p>
 
-                <mat-form-field class="full-width">
+                <mat-form-field class="full-width" appearance="outline">
                   <mat-label>Days Before Release</mat-label>
                   <input
                     matInput
@@ -132,7 +132,7 @@ import {
                 </mat-form-field>
 
                 <div class="time-inputs">
-                  <mat-form-field class="time-field">
+                  <mat-form-field class="time-field" appearance="outline">
                     <mat-label>Release Hour</mat-label>
                     <input
                       matInput
@@ -143,7 +143,7 @@ import {
                     />
                   </mat-form-field>
 
-                  <mat-form-field class="time-field">
+                  <mat-form-field class="time-field" appearance="outline">
                     <mat-label>Release Minute</mat-label>
                     <input
                       matInput
@@ -180,7 +180,7 @@ import {
                   Your credentials are securely encrypted.
                 </p>
 
-                <mat-form-field class="full-width">
+                <mat-form-field class="full-width" appearance="outline">
                   <mat-label>Email</mat-label>
                   <input
                     matInput
@@ -197,7 +197,7 @@ import {
                   </mat-error>
                 </mat-form-field>
 
-                <mat-form-field class="full-width">
+                <mat-form-field class="full-width" appearance="outline">
                   <mat-label>Password</mat-label>
                   <input
                     matInput

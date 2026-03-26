@@ -42,7 +42,7 @@ import { AuthService } from '../../../services/auth.service';
 
         <mat-card-content>
           <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
-            <mat-form-field class="full-width">
+            <mat-form-field class="full-width" appearance="outline">
               <mat-label>Email</mat-label>
               <input
                 matInput
@@ -58,7 +58,7 @@ import { AuthService } from '../../../services/auth.service';
               </mat-error>
             </mat-form-field>
 
-            <mat-form-field class="full-width">
+            <mat-form-field class="full-width" appearance="outline">
               <mat-label>Password</mat-label>
               <input
                 matInput

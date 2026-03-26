@@ -7,8 +7,9 @@ export interface RegisterRequest {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
+  phoneNumber: string;
   password: string;
+  confirmPassword: string;
 }
 
 export interface AuthResponse {

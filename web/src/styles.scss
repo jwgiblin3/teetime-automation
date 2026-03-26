@@ -365,6 +365,37 @@ button {
   color: #999999 !important;
 }
 
+// Dark theme overrides for outlined form fields
+.mat-mdc-form-field.mat-form-field-appearance-outline {
+  .mdc-notched-outline__leading,
+  .mdc-notched-outline__notch,
+  .mdc-notched-outline__trailing {
+    border-color: #555555 !important;
+  }
+
+  &:hover .mdc-notched-outline__leading,
+  &:hover .mdc-notched-outline__notch,
+  &:hover .mdc-notched-outline__trailing {
+    border-color: #888888 !important;
+  }
+
+  &.mat-focused .mdc-notched-outline__leading,
+  &.mat-focused .mdc-notched-outline__notch,
+  &.mat-focused .mdc-notched-outline__trailing {
+    border-color: $golf-light-green !important;
+  }
+
+  .mdc-floating-label,
+  .mat-mdc-floating-label {
+    color: #aaaaaa !important;
+  }
+
+  &.mat-focused .mdc-floating-label,
+  &.mat-focused .mat-mdc-floating-label {
+    color: $golf-light-green !important;
+  }
+}
+
 // Grid layouts
 .grid-container {
   display: grid;
@@ -407,4 +438,42 @@ button {
   &:hover {
     background: $golf-accent-green;
   }
+}
+
+// Dark theme for mat-stepper
+.mat-stepper-horizontal,
+.mat-stepper-vertical,
+.mat-horizontal-stepper-header-container,
+.mat-horizontal-content-container,
+.mat-vertical-content-container {
+  background-color: #1e1e1e !important;
+}
+
+.mat-step-header {
+  &:hover, &:focus {
+    background-color: #252525 !important;
+  }
+
+  .mat-step-label {
+    color: #aaaaaa !important;
+  }
+
+  .mat-step-label-selected,
+  .mat-step-label-active {
+    color: #c8e6c9 !important;
+  }
+
+  .mat-step-icon {
+    background-color: #444444 !important;
+    color: #ffffff !important;
+  }
+
+  .mat-step-icon-selected,
+  .mat-step-icon-state-edit {
+    background-color: $golf-light-green !important;
+  }
+}
+
+.mat-stepper-horizontal-line {
+  border-top-color: #333333 !important;
 }

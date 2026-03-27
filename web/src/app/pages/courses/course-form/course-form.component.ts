@@ -558,13 +558,25 @@ export class CourseFormComponent implements OnInit {
       }
     };
 
+    const credentials = {
+      email: this.credentialsForm.get('email')?.value,
+      password: this.credentialsForm.get('password')?.value
+    };
+
     const operation = this.editMode && this.courseId
       ? this.courseService.updateCourse(this.courseId, request)
       : this.courseService.createCourse(request);
 
     operation.subscribe({
-      next: () => {
-        this.router.navigate(['/courses']);
+      next: (course: Course) => {
+        const courseId = course.id;
+        this.courseService.saveCredentials(courseId, credentials).subscribe({
+          next: () => this.router.navigate(['/dashboard']),
+          error: () => {
+            // Course saved — navigate even if credentials call fails
+            this.router.navigate(['/dashboard']);
+          }
+        });
       },
       error: () => {
         this.submitting = false;

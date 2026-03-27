@@ -28,18 +28,22 @@ public class BookingsController : ControllerBase
     }
 
     /// <summary>
-    /// Get all booking requests for the current user
+    /// Get all booking requests for the current user, optionally filtered by status.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<List<BookingRequestDto>>> GetMyBookings()
+    public async Task<ActionResult<List<BookingRequestDto>>> GetMyBookings([FromQuery] string? status = null)
     {
         try
         {
             var userId = GetCurrentUserId();
             if (userId == null) return Unauthorized();
 
-            _logger.LogInformation("GetMyBookings: Fetching bookings for user {UserId}", userId);
+            _logger.LogInformation("GetMyBookings: Fetching bookings for user {UserId} status={Status}", userId, status);
             var bookings = await _bookingService.GetUserBookingRequestsAsync(userId.Value);
+
+            if (!string.IsNullOrWhiteSpace(status))
+                bookings = bookings.Where(b => b.StatusString == status.ToLower()).ToList();
+
             return Ok(bookings);
         }
         catch (Exception ex)
@@ -103,10 +107,18 @@ public class BookingsController : ControllerBase
     }
 
     /// <summary>
-    /// Cancel a booking request
+    /// Cancel a booking request (POST variant used by the Angular frontend)
+    /// </summary>
+    [HttpPost("{id}/cancel")]
+    public async Task<IActionResult> CancelBookingPost(int id) => await CancelBookingInternal(id);
+
+    /// <summary>
+    /// Cancel a booking request (DELETE variant)
     /// </summary>
     [HttpDelete("{id}")]
-    public async Task<IActionResult> CancelBooking(int id)
+    public async Task<IActionResult> CancelBooking(int id) => await CancelBookingInternal(id);
+
+    private async Task<IActionResult> CancelBookingInternal(int id)
     {
         try
         {

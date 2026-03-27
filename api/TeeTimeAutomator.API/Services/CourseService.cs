@@ -147,11 +147,18 @@ public class CourseService : ICourseService
             if (!string.IsNullOrWhiteSpace(request.BookingUrl))
                 course.BookingUrl = request.BookingUrl;
 
-            if (request.Platform.HasValue)
-                course.Platform = request.Platform.Value;
+            if (!string.IsNullOrWhiteSpace(request.PlatformString))
+                course.Platform = ParsePlatform(request.PlatformString);
 
             if (request.ReleaseSchedule != null)
-                course.ReleaseScheduleJson = JsonConvert.SerializeObject(request.ReleaseSchedule);
+            {
+                var schedule = new ReleaseSchedule
+                {
+                    DaysInAdvance = request.ReleaseSchedule.DaysBeforeRelease,
+                    ReleaseTime = $"{request.ReleaseSchedule.ReleaseTimeHour:D2}:{request.ReleaseSchedule.ReleaseTimeMinute:D2}"
+                };
+                course.ReleaseScheduleJson = JsonConvert.SerializeObject(schedule);
+            }
 
             if (request.IsActive.HasValue)
                 course.IsActive = request.IsActive.Value;
@@ -351,18 +358,37 @@ public class CourseService : ICourseService
         }
     }
 
+    private static string PlatformToString(CoursePlatform platform) => platform switch
+    {
+        CoursePlatform.CpsGolf => "cps-golf",
+        CoursePlatform.GolfNow => "golfnow",
+        CoursePlatform.TeeSnap => "teesnap",
+        CoursePlatform.ForeUp => "foreup",
+        _ => "other"
+    };
+
     private CourseDto MapCourseToDto(Course course)
     {
-        var releaseSchedule = JsonConvert.DeserializeObject<ReleaseSchedule>(course.ReleaseScheduleJson)
-                              ?? new ReleaseSchedule();
+        var stored = JsonConvert.DeserializeObject<ReleaseSchedule>(course.ReleaseScheduleJson)
+                     ?? new ReleaseSchedule();
+
+        var timeParts = stored.ReleaseTime.Split(':');
+        var hour = timeParts.Length > 0 && int.TryParse(timeParts[0], out var h) ? h : 0;
+        var minute = timeParts.Length > 1 && int.TryParse(timeParts[1], out var m) ? m : 0;
 
         return new CourseDto
         {
-            CourseId = course.CourseId,
-            CourseName = course.CourseName,
+            Id = course.CourseId.ToString(),
+            Name = course.CourseName,
             BookingUrl = course.BookingUrl,
-            Platform = course.Platform,
-            ReleaseSchedule = releaseSchedule,
+            Platform = PlatformToString(course.Platform),
+            ReleaseSchedule = new CourseDtoReleaseSchedule
+            {
+                DaysBeforeRelease = stored.DaysInAdvance,
+                ReleaseTimeHour = hour,
+                ReleaseTimeMinute = minute
+            },
+            CredentialsSaved = false,
             IsActive = course.IsActive,
             CreatedAt = course.CreatedAt,
             UpdatedAt = course.UpdatedAt

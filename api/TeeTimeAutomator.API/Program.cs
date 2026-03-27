@@ -198,11 +198,16 @@ if (!app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Configure Hangfire dashboard (admin only)
+// Configure Hangfire dashboard
+// In development: open access for easy local debugging.
+// In production: swap back to HangfireAuthorizationFilter.
+var isDevelopment = app.Environment.IsDevelopment();
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     IsReadOnlyFunc = _ => false,
-    Authorization = new[] { new HangfireAuthorizationFilter() }
+    Authorization = isDevelopment
+        ? new[] { new HangfireAllowAllFilter() }
+        : new IDashboardAuthorizationFilter[] { new HangfireAuthorizationFilter() }
 });
 
 app.MapControllers();
@@ -212,14 +217,23 @@ app.MapGet("/", () => Results.Redirect("/swagger"));
 app.Run();
 
 /// <summary>
+/// Allows all requests — used in local development only.
+/// </summary>
+public class HangfireAllowAllFilter : IDashboardAuthorizationFilter
+{
+    public bool Authorize(DashboardContext context) => true;
+}
+
+/// <summary>
 /// Custom Hangfire authorization filter to ensure only admins can access the dashboard.
 /// </summary>
-public class HangfireAuthorizationFilter : Hangfire.Dashboard.IDashboardAuthorizationFilter
+public class HangfireAuthorizationFilter : IDashboardAuthorizationFilter
 {
-    public bool Authorize(Hangfire.Dashboard.DashboardContext context)
+    public bool Authorize(DashboardContext context)
     {
         var user = context.GetHttpContext().User;
-        return user?.Identity?.IsAuthenticated == true;
+        return user?.Identity?.IsAuthenticated == true &&
+               user.IsInRole("Admin");
     }
 }
 

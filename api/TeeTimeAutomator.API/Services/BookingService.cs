@@ -68,7 +68,7 @@ public class BookingService : IBookingService
                 UserId = userId,
                 CourseId = request.CourseId,
                 DesiredDate = request.DesiredDate,
-                PreferredTime = request.PreferredTime,
+                PreferredTime = request.GetPreferredTime(),
                 TimeWindowMinutes = request.TimeWindowMinutes,
                 NumberOfPlayers = request.NumberOfPlayers,
                 Status = BookingStatus.Pending,

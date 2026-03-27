@@ -107,7 +107,7 @@ public class AdminController : ControllerBase
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var course = await _courseService.CreateCourseAsync(request);
-            _logger.LogInformation("AddCourse: Successfully created course {CourseId}", course.CourseId);
+            _logger.LogInformation("AddCourse: Successfully created course {CourseId}", course.Id);
             return CreatedAtAction(nameof(GetAllCourses), MapToAdminCourseDto(course));
         }
         catch (Exception ex)
@@ -202,9 +202,9 @@ public class AdminController : ControllerBase
 
     private static AdminCourseDto MapToAdminCourseDto(CourseDto course) => new AdminCourseDto
     {
-        Id = course.CourseId,
-        Name = course.CourseName,
-        Platform = course.Platform.ToString(),
+        Id = int.TryParse(course.Id, out var parsedId) ? parsedId : 0,
+        Name = course.Name,
+        Platform = course.Platform,
         BookingUrl = course.BookingUrl,
         CreatedAt = course.CreatedAt
     };

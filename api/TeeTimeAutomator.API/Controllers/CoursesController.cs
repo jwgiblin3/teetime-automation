@@ -57,8 +57,8 @@ public class CoursesController : ControllerBase
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var course = await _courseService.CreateCourseAsync(request);
-            _logger.LogInformation("CreateCourse: Successfully created course {CourseId}", course.CourseId);
-            return CreatedAtAction(nameof(GetCourseById), new { id = course.CourseId }, course);
+            _logger.LogInformation("CreateCourse: Successfully created course {CourseId}", course.Id);
+            return CreatedAtAction(nameof(GetCourseById), new { id = course.Id }, course);
         }
         catch (Exception ex)
         {

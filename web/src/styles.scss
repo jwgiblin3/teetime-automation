@@ -96,6 +96,18 @@ button {
   background-color: #1e1e1e !important;
 }
 
+// Selected value shown inside the trigger (closed state)
+.mat-mdc-select-value,
+.mat-mdc-select-value-text,
+.mat-mdc-select-placeholder {
+  color: #ffffff !important;
+}
+
+// Dropdown arrow
+.mat-mdc-select-arrow svg {
+  fill: #ffffff !important;
+}
+
 .mat-mdc-option {
   color: #ffffff !important;
 }

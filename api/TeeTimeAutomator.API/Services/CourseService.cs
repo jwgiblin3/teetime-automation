@@ -72,6 +72,15 @@ public class CourseService : ICourseService
     /// <summary>
     /// Creates a new course.
     /// </summary>
+    private static CoursePlatform ParsePlatform(string platformString) => platformString.ToLower() switch
+    {
+        "cps-golf" => CoursePlatform.CpsGolf,
+        "golfnow" => CoursePlatform.GolfNow,
+        "teesnap" => CoursePlatform.TeeSnap,
+        "foreup" => CoursePlatform.ForeUp,
+        _ => CoursePlatform.Other
+    };
+
     public async Task<CourseDto> CreateCourseAsync(CreateCourseRequest request)
     {
         try
@@ -81,13 +90,21 @@ public class CourseService : ICourseService
                 throw new ArgumentException("Course name and booking URL are required");
             }
 
-            var releaseScheduleJson = JsonConvert.SerializeObject(request.ReleaseSchedule ?? new ReleaseSchedule());
+            var schedule = request.ReleaseSchedule != null
+                ? new ReleaseSchedule
+                {
+                    DaysInAdvance = request.ReleaseSchedule.DaysBeforeRelease,
+                    ReleaseTime = $"{request.ReleaseSchedule.ReleaseTimeHour:D2}:{request.ReleaseSchedule.ReleaseTimeMinute:D2}"
+                }
+                : new ReleaseSchedule();
+
+            var releaseScheduleJson = JsonConvert.SerializeObject(schedule);
 
             var course = new Course
             {
                 CourseName = request.CourseName,
                 BookingUrl = request.BookingUrl,
-                Platform = request.Platform,
+                Platform = ParsePlatform(request.PlatformString),
                 ReleaseScheduleJson = releaseScheduleJson,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,

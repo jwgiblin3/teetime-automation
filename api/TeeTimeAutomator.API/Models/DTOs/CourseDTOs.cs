@@ -1,6 +1,17 @@
+using System.Text.Json.Serialization;
 using TeeTimeAutomator.API.Models.Enums;
 
 namespace TeeTimeAutomator.API.Models.DTOs;
+
+/// <summary>
+/// Release schedule shape sent from the Angular frontend.
+/// </summary>
+public class CreateReleaseScheduleRequest
+{
+    public int DaysBeforeRelease { get; set; }
+    public int ReleaseTimeHour { get; set; }
+    public int ReleaseTimeMinute { get; set; }
+}
 
 /// <summary>
 /// Represents a tee time release schedule.
@@ -65,29 +76,33 @@ public class CourseDto
 }
 
 /// <summary>
-/// DTO for creating a new course.
+/// DTO for creating a new course. Field names match the Angular frontend payload.
 /// </summary>
 public class CreateCourseRequest
 {
     /// <summary>
     /// Name of the golf course.
     /// </summary>
+    [JsonPropertyName("name")]
     public string CourseName { get; set; } = string.Empty;
 
     /// <summary>
     /// URL to the course's booking page.
     /// </summary>
+    [JsonPropertyName("bookingUrl")]
     public string BookingUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// The booking platform used by the course.
+    /// The booking platform string (e.g. "cps-golf", "golfnow").
     /// </summary>
-    public CoursePlatform Platform { get; set; }
+    [JsonPropertyName("platform")]
+    public string PlatformString { get; set; } = string.Empty;
 
     /// <summary>
-    /// The tee time release schedule for this course.
+    /// The tee time release schedule from the frontend.
     /// </summary>
-    public ReleaseSchedule? ReleaseSchedule { get; set; }
+    [JsonPropertyName("releaseSchedule")]
+    public CreateReleaseScheduleRequest? ReleaseSchedule { get; set; }
 }
 
 /// <summary>

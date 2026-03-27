@@ -296,7 +296,7 @@ public class AuthService : IAuthService
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
                 new Claim("sub", userId.ToString()),
@@ -305,6 +305,12 @@ public class AuthService : IAuthService
                 new Claim("lastName", user.LastName),
                 new Claim("role", user.IsAdmin ? "admin" : "user")
             };
+
+            if (user.IsAdmin)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, "Admin"));
+                claims.Add(new Claim("admin", "true"));
+            }
 
             var token = new JwtSecurityToken(
                 issuer: issuer,

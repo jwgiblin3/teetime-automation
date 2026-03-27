@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 using TeeTimeAutomator.API.Models.Enums;
 
 namespace TeeTimeAutomator.API.Models.DTOs;
@@ -83,25 +83,25 @@ public class CreateCourseRequest
     /// <summary>
     /// Name of the golf course.
     /// </summary>
-    [JsonPropertyName("name")]
+    [JsonProperty("name")]
     public string CourseName { get; set; } = string.Empty;
 
     /// <summary>
     /// URL to the course's booking page.
     /// </summary>
-    [JsonPropertyName("bookingUrl")]
+    [JsonProperty("bookingUrl")]
     public string BookingUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// The booking platform string (e.g. "cps-golf", "golfnow").
     /// </summary>
-    [JsonPropertyName("platform")]
+    [JsonProperty("platform")]
     public string PlatformString { get; set; } = string.Empty;
 
     /// <summary>
     /// The tee time release schedule from the frontend.
     /// </summary>
-    [JsonPropertyName("releaseSchedule")]
+    [JsonProperty("releaseSchedule")]
     public CreateReleaseScheduleRequest? ReleaseSchedule { get; set; }
 }
 

@@ -20,6 +20,7 @@ public class BookTeeTimeJob
     private readonly IBookingService _bookingService;
     private readonly ICourseService _courseService;
     private readonly ISmsService _smsService;
+    private readonly IEmailService _emailService;
     private readonly ICalendarService _calendarService;
     private readonly AppDbContext _dbContext;
 
@@ -30,6 +31,7 @@ public class BookTeeTimeJob
         IBookingService bookingService,
         ICourseService courseService,
         ISmsService smsService,
+        IEmailService emailService,
         ICalendarService calendarService,
         AppDbContext dbContext)
     {
@@ -39,6 +41,7 @@ public class BookTeeTimeJob
         _bookingService = bookingService;
         _courseService = courseService;
         _smsService = smsService;
+        _emailService = emailService;
         _calendarService = calendarService;
         _dbContext = dbContext;
     }
@@ -109,6 +112,17 @@ public class BookTeeTimeJob
                 bookingRequest.ErrorMessage = $"Login failed: {loginError}";
                 await _dbContext.SaveChangesAsync();
 
+                // Email failure notification
+                try
+                {
+                    await _emailService.SendBookingFailureAsync(
+                        bookingRequest.User!.Email,
+                        course.CourseName,
+                        bookingRequest.DesiredDate,
+                        $"Login failed: {loginError}");
+                }
+                catch (Exception emailEx) { _logger.LogWarning(emailEx, "Failed to send login-failure email for booking {BookingRequestId}", bookingRequestId); }
+
                 if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
                 {
                     try
@@ -161,6 +175,17 @@ public class BookTeeTimeJob
                     bookingRequest.Status = BookingStatus.Booked;
                     bookingRequest.BookingResult = result;
                     await _dbContext.SaveChangesAsync();
+
+                    // Email confirmation to the user's login address
+                    try
+                    {
+                        await _emailService.SendBookingConfirmationAsync(
+                            bookingRequest.User!.Email,
+                            course.CourseName,
+                            bookingResult.BookedTime ?? selectedSlot.DateTime,
+                            bookingResult.ConfirmationNumber);
+                    }
+                    catch (Exception emailEx) { _logger.LogWarning(emailEx, "Failed to send confirmation email for booking {BookingRequestId}", bookingRequestId); }
 
                     if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
                     {
@@ -216,17 +241,30 @@ public class BookTeeTimeJob
                 try { await _dbContext.SaveChangesAsync(); }
                 catch (Exception saveEx) { _logger.LogError(saveEx, "Failed to save error state for booking request {BookingRequestId}", bookingRequestId); }
 
-                if (bookingRequest.User != null && course != null && !string.IsNullOrEmpty(bookingRequest.User.PhoneNumber))
+                if (bookingRequest.User != null && course != null)
                 {
                     try
                     {
-                        await _smsService.SendBookingFailureAsync(
-                            bookingRequest.User.PhoneNumber,
+                        await _emailService.SendBookingFailureAsync(
+                            bookingRequest.User.Email,
                             course.CourseName,
                             bookingRequest.DesiredDate,
                             ex.Message);
                     }
-                    catch (Exception smsEx) { _logger.LogError(smsEx, "Failed to send failure SMS for request {BookingRequestId}", bookingRequestId); }
+                    catch (Exception emailEx) { _logger.LogError(emailEx, "Failed to send failure email for request {BookingRequestId}", bookingRequestId); }
+
+                    if (!string.IsNullOrEmpty(bookingRequest.User.PhoneNumber))
+                    {
+                        try
+                        {
+                            await _smsService.SendBookingFailureAsync(
+                                bookingRequest.User.PhoneNumber,
+                                course.CourseName,
+                                bookingRequest.DesiredDate,
+                                ex.Message);
+                        }
+                        catch (Exception smsEx) { _logger.LogError(smsEx, "Failed to send failure SMS for request {BookingRequestId}", bookingRequestId); }
+                    }
                 }
             }
 

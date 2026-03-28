@@ -266,29 +266,47 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 classCode      = "RS"
             };
 
-            var bookUrl  = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime";
-            var response = await CallApiAsync<JsonElement>("POST", bookUrl, bookingPayload, ct);
+            var bookUrl = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime";
 
+            // Call with raw response logging so we can see exactly what CPS Golf returns
+            var (rawBody, response) = await CallApiRawAsync<JsonElement>("POST", bookUrl, bookingPayload, ct);
+            _logger.LogInformation("CPS Golf: SaveTeeTime raw response: {Body}", rawBody);
+
+            // Try every plausible confirmation-number field name CPS Golf might return
             string? confirmationNumber = GetStringProp(response,
                 "confirmationNumber", "ConfirmationNumber",
                 "confirmationId",     "ConfirmationId",
-                "reservationNumber",  "ReservationNumber");
+                "reservationNumber",  "ReservationNumber",
+                "teeReservationId",   "TeeReservationId",
+                "reservationId",      "ReservationId",
+                "reservationCode",    "ReservationCode",
+                "receiptNumber",      "ReceiptNumber");
 
-            bool success = !string.IsNullOrEmpty(confirmationNumber)
-                        || GetBoolProp(response, "success", "Success", "isSuccess", "IsSuccess");
+            // Also accept a numeric reservation ID as confirmation
+            if (string.IsNullOrEmpty(confirmationNumber))
+            {
+                var numericId = GetIntProp(response,
+                    "teeReservationId", "TeeReservationId",
+                    "reservationId",    "ReservationId",
+                    "receiptId",        "ReceiptId");
+                if (numericId.HasValue)
+                    confirmationNumber = numericId.Value.ToString();
+            }
 
-            if (success)
+            // Only mark as booked when we have a real confirmation identifier.
+            // A bare {"success":true} without an ID means the booking did NOT go through.
+            if (!string.IsNullOrEmpty(confirmationNumber))
             {
                 result.Success            = true;
-                result.ConfirmationNumber = confirmationNumber ?? $"CPS-{slot.SlotId}";
+                result.ConfirmationNumber = confirmationNumber;
                 result.BookedTime         = slot.DateTime;
                 _logger.LogInformation("CPS Golf: Booking confirmed — {Confirmation}", result.ConfirmationNumber);
             }
             else
             {
                 result.ErrorMessage = GetStringProp(response, "message", "Message", "errorMessage", "ErrorMessage")
-                    ?? "Booking failed — no confirmation returned";
-                _logger.LogWarning("CPS Golf: Booking failed — {Error}", result.ErrorMessage);
+                    ?? $"Booking did not return a confirmation ID. Full response: {rawBody[..Math.Min(500, rawBody.Length)]}";
+                _logger.LogWarning("CPS Golf: No confirmation ID in response — {Error}", result.ErrorMessage);
             }
         }
         catch (Exception ex)
@@ -304,6 +322,45 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     // ──────────────────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Like CallApiAsync but also returns the raw response body string for logging/debugging.
+    /// </summary>
+    private async Task<(string RawBody, T Parsed)> CallApiRawAsync<T>(
+        string method, string url, object? body = null, CancellationToken ct = default)
+    {
+        var client  = _httpClientFactory.CreateClient("CpsGolf");
+        var request = new HttpRequestMessage(new HttpMethod(method), url);
+
+        if (!string.IsNullOrEmpty(_bearerToken))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
+
+        if (!string.IsNullOrEmpty(_componentId))
+            request.Headers.TryAddWithoutValidation("componentid", _componentId);
+
+        if (body != null)
+        {
+            var json = JsonSerializer.Serialize(body);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        var response = await client.SendAsync(request, ct);
+        var content  = await response.Content.ReadAsStringAsync(ct);
+
+        _logger.LogInformation("CPS Golf API {Method} {Url} → {Status}", method, url, (int)response.StatusCode);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("CPS Golf API error {Status}: {Body}", (int)response.StatusCode,
+                content.Length > 500 ? content[..500] : content);
+            return (content, default!);
+        }
+
+        if (string.IsNullOrWhiteSpace(content)) return (content, default!);
+
+        try { return (content, JsonSerializer.Deserialize<T>(content)!); }
+        catch { return (content, default!); }
+    }
 
     private async Task<T> CallApiAsync<T>(string method, string url, object? body = null,
         CancellationToken ct = default)

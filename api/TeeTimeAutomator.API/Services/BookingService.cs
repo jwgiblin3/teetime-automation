@@ -1,6 +1,5 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
-using Newtonsoft.Json;
 using TeeTimeAutomator.API.Data;
 using TeeTimeAutomator.API.Models;
 using TeeTimeAutomator.API.Models.DTOs;
@@ -79,16 +78,8 @@ public class BookingService : IBookingService
             _context.BookingRequests.Add(bookingRequest);
             await _context.SaveChangesAsync();
 
-            var scheduledFireTime = CalculateScheduledFireTime(course);
-            bookingRequest.ScheduledFireTime = scheduledFireTime;
-            bookingRequest.Status = BookingStatus.Scheduled;
-
-            var jobId = BackgroundJob.Schedule<BookingService>(
-                x => x.ProcessBookingAsync(bookingRequest.RequestId),
-                scheduledFireTime
-            );
-
-            bookingRequest.HangfireJobId = jobId;
+            // Status starts as Pending; ScheduleBookingJob (enqueued by the controller)
+            // will calculate the correct fire time and update it to Scheduled.
             _context.BookingRequests.Update(bookingRequest);
             await _context.SaveChangesAsync();
 
@@ -251,135 +242,13 @@ public class BookingService : IBookingService
     }
 
     /// <summary>
-    /// Processes a booking request (called by Hangfire job).
+    /// No-op stub — real booking is handled by BookTeeTimeJob (scheduled via ScheduleBookingJob).
+    /// This method exists only to satisfy the interface contract.
     /// </summary>
-    public async Task ProcessBookingAsync(int requestId)
+    public Task ProcessBookingAsync(int requestId)
     {
-        try
-        {
-            var bookingRequest = await _context.BookingRequests
-                .Include(br => br.Course)
-                .Include(br => br.User)
-                .FirstOrDefaultAsync(br => br.RequestId == requestId);
-
-            if (bookingRequest == null)
-            {
-                _logger.LogWarning("Booking request {RequestId} not found for processing", requestId);
-                return;
-            }
-
-            if (bookingRequest.Status == BookingStatus.Cancelled)
-            {
-                _logger.LogInformation("Skipping cancelled booking request {RequestId}", requestId);
-                return;
-            }
-
-            bookingRequest.Status = BookingStatus.InProgress;
-            bookingRequest.UpdatedAt = DateTime.UtcNow;
-            _context.BookingRequests.Update(bookingRequest);
-            await _context.SaveChangesAsync();
-
-            await _auditService.LogEventAsync(bookingRequest.UserId, requestId, AuditEventType.BookingAttemptStarted,
-                "Automatic booking attempt started");
-
-            try
-            {
-                var credentials = await _courseService.GetCredentialsAsync(bookingRequest.UserId, bookingRequest.CourseId);
-                if (credentials == null)
-                {
-                    throw new InvalidOperationException("Course credentials not found for booking");
-                }
-
-                var (email, password) = credentials.Value;
-
-                var result = new BookingResult
-                {
-                    RequestId = requestId,
-                    AttemptCount = 1,
-                    LastAttemptAt = DateTime.UtcNow,
-                    IsSuccess = true,
-                    BookedTime = CombineDateTime(bookingRequest.DesiredDate, bookingRequest.PreferredTime),
-                    ConfirmationNumber = $"CONF{Guid.NewGuid():N}".Substring(0, 16),
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                bookingRequest.BookingResult = result;
-                bookingRequest.Status = BookingStatus.Booked;
-                bookingRequest.UpdatedAt = DateTime.UtcNow;
-
-                _context.BookingResults.Add(result);
-                _context.BookingRequests.Update(bookingRequest);
-                await _context.SaveChangesAsync();
-
-                if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
-                {
-                    try
-                    {
-                        await _smsService.SendBookingConfirmationAsync(
-                            bookingRequest.User.PhoneNumber,
-                            bookingRequest.Course.CourseName,
-                            result.BookedTime!.Value,
-                            result.ConfirmationNumber);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to send SMS notification for booking {RequestId}", requestId);
-                    }
-                }
-
-                await _auditService.LogEventAsync(bookingRequest.UserId, requestId, AuditEventType.BookingCompleted,
-                    $"Booking completed successfully - Confirmation: {result.ConfirmationNumber}");
-
-                _logger.LogInformation("Booking request {RequestId} processed successfully", requestId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing booking request {RequestId}", requestId);
-
-                var result = new BookingResult
-                {
-                    RequestId = requestId,
-                    AttemptCount = 1,
-                    LastAttemptAt = DateTime.UtcNow,
-                    FailureReason = ex.Message,
-                    IsSuccess = false,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                bookingRequest.BookingResult = result;
-                bookingRequest.Status = BookingStatus.Failed;
-                bookingRequest.UpdatedAt = DateTime.UtcNow;
-
-                _context.BookingResults.Add(result);
-                _context.BookingRequests.Update(bookingRequest);
-                await _context.SaveChangesAsync();
-
-                if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
-                {
-                    try
-                    {
-                        await _smsService.SendBookingFailureAsync(
-                            bookingRequest.User.PhoneNumber,
-                            bookingRequest.Course.CourseName,
-                            bookingRequest.DesiredDate,
-                            ex.Message);
-                    }
-                    catch (Exception smsEx)
-                    {
-                        _logger.LogWarning(smsEx, "Failed to send failure SMS for booking {RequestId}", requestId);
-                    }
-                }
-
-                await _auditService.LogEventAsync(bookingRequest.UserId, requestId, AuditEventType.BookingFailed,
-                    $"Booking failed: {ex.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Critical error processing booking request {RequestId}", requestId);
-        }
+        _logger.LogDebug("ProcessBookingAsync called for {RequestId} — delegated to BookTeeTimeJob", requestId);
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -423,40 +292,6 @@ public class BookingService : IBookingService
             _logger.LogError(ex, "Error getting booking status for request {RequestId}", requestId);
             throw;
         }
-    }
-
-    private DateTime CalculateScheduledFireTime(Course course)
-    {
-        try
-        {
-            var releaseSchedule = JsonConvert.DeserializeObject<ReleaseSchedule>(course.ReleaseScheduleJson)
-                                  ?? new ReleaseSchedule { DaysInAdvance = 14, ReleaseTime = "06:00" };
-
-            var releaseDateTime = DateTime.UtcNow
-                .AddDays(releaseSchedule.DaysInAdvance)
-                .Date;
-
-            if (TimeOnly.TryParse(releaseSchedule.ReleaseTime, out var releaseTime))
-            {
-                releaseDateTime = releaseDateTime.Add(releaseTime.ToTimeSpan());
-            }
-            else
-            {
-                releaseDateTime = releaseDateTime.AddHours(6);
-            }
-
-            return releaseDateTime;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error calculating scheduled fire time for course {CourseId}", course.CourseId);
-            return DateTime.UtcNow.AddDays(14);
-        }
-    }
-
-    private DateTime CombineDateTime(DateTime date, TimeOnly time)
-    {
-        return date.Date.Add(time.ToTimeSpan());
     }
 
     private BookingRequestDto MapBookingRequestToDto(BookingRequest request)

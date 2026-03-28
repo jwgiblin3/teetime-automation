@@ -74,7 +74,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var emailInput = await _page.QuerySelectorAsync("input[type='email']");
             if (emailInput == null)
             {
-                _logger.LogWarning("CPS Golf: Email field not found");
+                _lastLoginError = $"Email field not found on login page ({loginUrl}). Page title: {await _page.TitleAsync()}";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
             await _page.FillAsync("input[type='email']", email);
@@ -88,7 +89,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             }
             catch (TimeoutException)
             {
-                _logger.LogWarning("CPS Golf: Password field did not appear");
+                var pageUrl = _page.Url;
+                var pageTitle = await _page.TitleAsync();
+                _lastLoginError = $"Password field did not appear after entering email. Current URL: {pageUrl}, Title: {pageTitle}";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
 
@@ -102,7 +106,15 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             }
             catch (TimeoutException) { /* navigation may not fire */ }
 
+            var currentUrl = _page.Url;
+            _logger.LogInformation("CPS Golf: After login submit, current URL is {Url}", currentUrl);
+
             // --- 2. Extract the OIDC bearer token from localStorage ---------
+            // Dump all localStorage keys so we can see what's actually there
+            var allKeys = await _page.EvaluateAsync<string[]>("() => Object.keys(localStorage)");
+            _logger.LogInformation("CPS Golf: localStorage keys after login: [{Keys}]",
+                string.Join(", ", allKeys ?? Array.Empty<string>()));
+
             var tokenJson = await _page.EvaluateAsync<string?>(@"() => {
                 for (const key of Object.keys(localStorage)) {
                     if (key.startsWith('oidc.user:')) {
@@ -115,16 +127,25 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             if (string.IsNullOrEmpty(tokenJson))
             {
-                _logger.LogWarning("CPS Golf: OIDC token not found in localStorage after login");
+                var keys = string.Join(", ", allKeys ?? Array.Empty<string>());
+                _lastLoginError = $"OIDC token not found in localStorage after login. URL: {currentUrl}. localStorage keys: [{keys}]";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
 
             using var tokenDoc = JsonDocument.Parse(tokenJson);
-            _bearerToken = tokenDoc.RootElement.GetProperty("access_token").GetString();
+            if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenProp))
+            {
+                _lastLoginError = $"'access_token' field missing from OIDC entry. Keys in entry: [{string.Join(", ", tokenDoc.RootElement.EnumerateObject().Select(p => p.Name))}]";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
+                return false;
+            }
+            _bearerToken = accessTokenProp.GetString();
 
             if (string.IsNullOrEmpty(_bearerToken))
             {
-                _logger.LogWarning("CPS Golf: access_token is empty");
+                _lastLoginError = "access_token field exists but is empty";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
 

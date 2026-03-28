@@ -569,25 +569,35 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return fallback;
             }
 
-            // Primary: read from x-correlation-id response header
+            // Primary: parse transactionId from JSON response body
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    var root = doc.RootElement;
+
+                    // Body could be {"transactionId":"..."} object or a bare "\"guid\"" string
+                    string? id = root.ValueKind == JsonValueKind.String
+                        ? root.GetString()
+                        : GetStringProp(root, "transactionId", "TransactionId", "transaction_id");
+
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        _logger.LogInformation("CPS Golf: TransactionId from body = {Id}", id);
+                        return id;
+                    }
+                }
+                catch { /* fall through */ }
+            }
+
+            // Fallback: x-correlation-id response header
             if (response.Headers.TryGetValues("x-correlation-id", out var vals))
             {
                 var id = vals.FirstOrDefault();
                 if (!string.IsNullOrEmpty(id))
                 {
-                    _logger.LogInformation("CPS Golf: TransactionId from x-correlation-id = {Id}", id);
-                    return id;
-                }
-            }
-
-            // Fallback: parse JSON body
-            if (!string.IsNullOrWhiteSpace(body))
-            {
-                using var doc = JsonDocument.Parse(body);
-                var id = GetStringProp(doc.RootElement, "transactionId", "TransactionId");
-                if (!string.IsNullOrEmpty(id))
-                {
-                    _logger.LogInformation("CPS Golf: TransactionId from body = {Id}", id);
+                    _logger.LogInformation("CPS Golf: TransactionId from x-correlation-id header = {Id}", id);
                     return id;
                 }
             }

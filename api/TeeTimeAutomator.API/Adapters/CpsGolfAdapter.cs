@@ -604,9 +604,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         request.Headers.TryAddWithoutValidation("x-timezone-offset",  "240");
         request.Headers.TryAddWithoutValidation("x-timezoneid",       "America/New_York");
 
-        if (body != null)
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        // Always send application/json — server returns 415 if Content-Type is absent on POST
+        var bodyJson = body != null ? JsonSerializer.Serialize(body) : "{}";
+        if (method == "POST" || body != null)
+            request.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
 
         var response = await client.SendAsync(request, ct);
         var content  = await response.Content.ReadAsStringAsync(ct);

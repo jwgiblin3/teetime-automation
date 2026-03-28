@@ -16,14 +16,16 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     private readonly ILogger<CpsGolfAdapter> _logger;
     private readonly IHttpClientFactory     _httpClientFactory;
 
-    // OAuth tokens
+    // OAuth token
     private string? _bearerToken;       // main access token (client_id=js1, 1-hr expiry)
-    private string? _shortLivedToken;   // short-lived token (client_id=onlinereswebshortlived, 10-min expiry)
+    private string? _shortLivedToken;   // short-lived token (optional fallback)
 
     // Site config resolved at login
     private string? _baseUrl;           // e.g. "https://paramus.cps.golf"
     private int     _courseId    = 3;   // Paramus Golf Course default
     private int     _siteId      = 4;   // Paramus site default
+    private string  _componentId = "1";
+    private string  _websiteId   = "eac579f2-7b7d-4aa2-b1fc-08daa2e7b047"; // Paramus default
     private string  _classCode   = "RS";
     private string  _memberStoreId = "1";
     private int     _golferId    = 0;
@@ -467,9 +469,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             if (chosen is not null)
             {
-                _courseId = GetIntProp(chosen.Value, "courseId", "CourseId") ?? _courseId;
-                _siteId   = GetIntProp(chosen.Value, "siteId",   "SiteId")   ?? _siteId;
-                _logger.LogInformation("CPS Golf: courseId={CourseId} siteId={SiteId}", _courseId, _siteId);
+                _courseId  = GetIntProp(chosen.Value,    "courseId",  "CourseId")  ?? _courseId;
+                _siteId    = GetIntProp(chosen.Value,    "siteId",    "SiteId")    ?? _siteId;
+                _websiteId = GetStringProp(chosen.Value, "websiteId", "WebsiteId") ?? _websiteId;
+                _logger.LogInformation("CPS Golf: courseId={CourseId} siteId={SiteId} websiteId={WebsiteId}",
+                    _courseId, _siteId, _websiteId);
             }
         }
         catch (Exception ex)
@@ -502,6 +506,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             _acct          = GetStringProp(root, "acct")          ?? _acct;
             _classCode     = GetStringProp(root, "classCode")     ?? _classCode;
             _memberStoreId = GetStringProp(root, "store_id")      ?? _memberStoreId;
+            _componentId   = GetStringProp(root, "component_id")  ?? _componentId;
 
             _logger.LogInformation(
                 "CPS Golf: User claims — golferId={GolferId} acct={Acct} classCode={ClassCode} storeId={StoreId}",
@@ -582,13 +587,22 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         var client  = _httpClientFactory.CreateClient("CpsGolf");
         var request = new HttpRequestMessage(new HttpMethod(method), url);
 
-        // Use short-lived token for search calls (bypasses componentid header requirement),
-        // fall back to main token if short-lived token wasn't obtained.
-        var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
-            ? _shortLivedToken
-            : _bearerToken;
-        if (!string.IsNullOrEmpty(token))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        // Always use main access token — correct x-headers make it work
+        if (!string.IsNullOrEmpty(_bearerToken))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
+
+        // Required CPS Golf custom headers (discovered from browser DevTools)
+        request.Headers.TryAddWithoutValidation("client-id",          "onlineresweb");
+        request.Headers.TryAddWithoutValidation("x-componentid",      _componentId);
+        request.Headers.TryAddWithoutValidation("x-siteid",           _siteId.ToString());
+        request.Headers.TryAddWithoutValidation("x-websiteid",        _websiteId);
+        request.Headers.TryAddWithoutValidation("x-moduleid",         "7");
+        request.Headers.TryAddWithoutValidation("x-productid",        "1");
+        request.Headers.TryAddWithoutValidation("x-terminalid",       "3");
+        request.Headers.TryAddWithoutValidation("x-ismobile",         "false");
+        request.Headers.TryAddWithoutValidation("x-requestid",        Guid.NewGuid().ToString());
+        request.Headers.TryAddWithoutValidation("x-timezone-offset",  "240");
+        request.Headers.TryAddWithoutValidation("x-timezoneid",       "America/New_York");
 
         if (body != null)
             request.Content = new StringContent(

@@ -71,6 +71,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Enter email
+            // NOTE: There are two button[type='submit'] on this page — the header "Sign In"
+            // link comes first in the DOM. We must use button.mat-accent to target the form button.
             var emailInput = await _page.QuerySelectorAsync("input[type='email']");
             if (emailInput == null)
             {
@@ -79,72 +81,72 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return false;
             }
             await _page.FillAsync("input[type='email']", email);
-            await _page.ClickAsync("button[type='submit']");
 
-            // Wait for password field
+            // Click the "NEXT" form button (mat-accent), not the header Sign In button
             try
             {
-                await _page.WaitForSelectorAsync("input[type='password']",
-                    new PageWaitForSelectorOptions { Timeout = 15000 });
+                await _page.WaitForSelectorAsync("button.mat-accent:not([disabled])",
+                    new PageWaitForSelectorOptions { Timeout = 5000 });
+            }
+            catch (TimeoutException) { /* button may already be enabled */ }
+            await _page.ClickAsync("button.mat-accent");
+
+            // Wait for navigation to /auth/login
+            try
+            {
+                await _page.WaitForURLAsync("**/auth/login**",
+                    new PageWaitForURLOptions { Timeout = 15000 });
             }
             catch (TimeoutException)
             {
                 var pageUrl = _page.Url;
-                var pageTitle = await _page.TitleAsync();
-                _lastLoginError = $"Password field did not appear after entering email. Current URL: {pageUrl}, Title: {pageTitle}";
+                _lastLoginError = $"Did not navigate to /auth/login after entering email. Still at: {pageUrl}";
+                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
+                return false;
+            }
+
+            _logger.LogInformation("CPS Golf: Navigated to login page: {Url}", _page.Url);
+
+            // Wait for password field on the /auth/login page
+            try
+            {
+                await _page.WaitForSelectorAsync("input[type='password']",
+                    new PageWaitForSelectorOptions { Timeout = 10000 });
+            }
+            catch (TimeoutException)
+            {
+                _lastLoginError = $"Password field did not appear on /auth/login. URL: {_page.Url}";
                 _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
 
             await _page.FillAsync("input[type='password']", password);
-            await _page.ClickAsync("button[type='submit']");
+
+            // Click the "SIGN IN" form button (mat-accent), not the header Sign In button
+            await _page.ClickAsync("button.mat-accent");
 
             try
             {
                 await _page.WaitForLoadStateAsync(LoadState.NetworkIdle,
-                    new PageWaitForLoadStateOptions { Timeout = 15000 });
+                    new PageWaitForLoadStateOptions { Timeout = 20000 });
             }
             catch (TimeoutException) { /* navigation may not fire */ }
 
             var currentUrl = _page.Url;
             _logger.LogInformation("CPS Golf: After login submit, current URL is {Url}", currentUrl);
 
-            // --- 2. Extract the OIDC bearer token from localStorage ---------
-            // Dump all localStorage keys so we can see what's actually there
-            var allKeys = await _page.EvaluateAsync<string[]>("() => Object.keys(localStorage)");
-            _logger.LogInformation("CPS Golf: localStorage keys after login: [{Keys}]",
-                string.Join(", ", allKeys ?? Array.Empty<string>()));
-
-            var tokenJson = await _page.EvaluateAsync<string?>(@"() => {
-                for (const key of Object.keys(localStorage)) {
-                    if (key.startsWith('oidc.user:')) {
-                        const val = localStorage.getItem(key);
-                        if (val) return val;
-                    }
-                }
-                return null;
-            }");
-
-            if (string.IsNullOrEmpty(tokenJson))
-            {
-                var keys = string.Join(", ", allKeys ?? Array.Empty<string>());
-                _lastLoginError = $"OIDC token not found in localStorage after login. URL: {currentUrl}. localStorage keys: [{keys}]";
-                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
-                return false;
-            }
-
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-            if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenProp))
-            {
-                _lastLoginError = $"'access_token' field missing from OIDC entry. Keys in entry: [{string.Join(", ", tokenDoc.RootElement.EnumerateObject().Select(p => p.Name))}]";
-                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
-                return false;
-            }
-            _bearerToken = accessTokenProp.GetString();
+            // --- 2. Extract bearer token from localStorage ---------
+            // CPS Golf stores the token directly (not as an oidc.user: JSON object)
+            // at the key: "online-reservation-v5-access_token"
+            _bearerToken = await _page.EvaluateAsync<string?>(
+                "() => localStorage.getItem('online-reservation-v5-access_token')");
 
             if (string.IsNullOrEmpty(_bearerToken))
             {
-                _lastLoginError = "access_token field exists but is empty";
+                // Fallback: dump all keys so we can diagnose
+                var allKeys = await _page.EvaluateAsync<string[]>("() => Object.keys(localStorage)");
+                var keys = string.Join(", ", allKeys ?? Array.Empty<string>());
+                _lastLoginError = $"Token not found in localStorage after login. URL: {currentUrl}. Keys present: [{keys}]";
                 _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }

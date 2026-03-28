@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using TeeTimeAutomator.API.Adapters;
 using TeeTimeAutomator.API.Data;
 using TeeTimeAutomator.API.Models;
 using TeeTimeAutomator.API.Models.DTOs;
@@ -109,6 +110,20 @@ builder.Services.AddScoped<ICalendarService, CalendarService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+
+// Booking adapters
+builder.Services.AddScoped<IBookingAdapterFactory, BookingAdapterFactory>();
+builder.Services.AddScoped<CpsGolfAdapter>();
+builder.Services.AddScoped<GolfNowAdapter>();
+builder.Services.AddScoped<TeeSnapAdapter>();
+builder.Services.AddScoped<ForeUpAdapter>();
+
+// Named HttpClient for CPS Golf REST API calls
+builder.Services.AddHttpClient("CpsGolf", client =>
+{
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 // Add AutoMapper
 builder.Services.AddAutoMapper(typeof(Program));

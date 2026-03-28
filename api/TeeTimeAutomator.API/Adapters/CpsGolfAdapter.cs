@@ -1,405 +1,434 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Playwright;
 using Microsoft.Extensions.Logging;
 
 namespace TeeTimeAutomator.API.Adapters;
 
 /// <summary>
-/// Booking adapter for CPS Golf tee time systems (paramus.cps.golf style)
+/// Booking adapter for CPS Golf (Club Prophet Systems) tee time systems.
+/// Uses the site's own REST API rather than DOM scraping.
+/// Login is handled via Playwright to obtain the OIDC bearer token,
+/// then all subsequent calls use HttpClient for reliability and speed.
 /// </summary>
 public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 {
     private readonly ILogger<CpsGolfAdapter> _logger;
-    private IBrowser? _browser;
-    private IPage? _page;
-    private string? _currentBaseUrl;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    private const int PageLoadTimeoutMs = 30000;
-    private const int WaitForNavigationTimeoutMs = 15000;
+    private IBrowser?  _browser;
+    private IPage?     _page;
+    private string?    _baseUrl;
+    private string?    _bearerToken;
+    private string?    _componentId;
+    private int        _courseId;
 
-    public CpsGolfAdapter(ILogger<CpsGolfAdapter> logger)
+    private const int TimeoutMs = 30000;
+
+    public CpsGolfAdapter(ILogger<CpsGolfAdapter> logger, IHttpClientFactory httpClientFactory)
     {
-        _logger = logger;
+        _logger            = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
-    public async Task<bool> LoginAsync(string url, string email, string password, CancellationToken ct = default)
+    // ──────────────────────────────────────────────────────────────────────
+    // Login
+    // ──────────────────────────────────────────────────────────────────────
+
+    public async Task<bool> LoginAsync(string url, string email, string password,
+        CancellationToken ct = default)
     {
         try
         {
-            _logger.LogInformation("CPS Golf adapter: Starting login for {Email} on {Url}", email, url);
-            _currentBaseUrl = url;
+            _logger.LogInformation("CPS Golf: Starting login for {Email} on {Url}", email, url);
+            _baseUrl = url.TrimEnd('/');
 
-            // Initialize browser if not already done
-            if (_browser == null)
+            // --- 1. Use Playwright to log in and capture the OIDC token ----
+            var playwright = await Playwright.CreateAsync();
+            _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                var playwright = await Playwright.CreateAsync();
-                _browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-                {
-                    Headless = true,
-                    Args = new[] { "--disable-blink-features=AutomationControlled" }
-                });
-            }
+                Headless = true,
+                Args     = new[] { "--disable-blink-features=AutomationControlled" }
+            });
 
-            // Create new page
             _page = await _browser.NewPageAsync();
-            _page.SetDefaultTimeout(PageLoadTimeoutMs);
+            _page.SetDefaultTimeout(TimeoutMs);
 
-            // Step 1: Navigate to verify-email page
-            var loginUrl = $"{url.TrimEnd('/')}/auth/verify-email";
-            _logger.LogInformation("Navigating to {LoginUrl}", loginUrl);
-            await _page.GotoAsync(loginUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await _page.GotoAsync($"{_baseUrl}/auth/verify-email",
+                new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
-            // Step 2: Enter email
+            // Enter email
             var emailInput = await _page.QuerySelectorAsync("input[type='email']");
             if (emailInput == null)
             {
-                _logger.LogWarning("Email input field not found on CPS Golf login page");
+                _logger.LogWarning("CPS Golf: Email field not found");
                 return false;
             }
-
-            _logger.LogInformation("Entering email on CPS Golf login form");
             await _page.FillAsync("input[type='email']", email);
             await _page.ClickAsync("button[type='submit']");
 
-            // Wait for password field to appear
+            // Wait for password field
             try
             {
-                await _page.WaitForSelectorAsync("input[type='password']", new PageWaitForSelectorOptions { Timeout = WaitForNavigationTimeoutMs });
+                await _page.WaitForSelectorAsync("input[type='password']",
+                    new PageWaitForSelectorOptions { Timeout = 15000 });
             }
             catch (TimeoutException)
             {
-                _logger.LogWarning("Password field did not appear after email submission on CPS Golf");
+                _logger.LogWarning("CPS Golf: Password field did not appear");
                 return false;
             }
 
-            // Step 3: Enter password
-            _logger.LogInformation("Entering password on CPS Golf login form");
             await _page.FillAsync("input[type='password']", password);
             await _page.ClickAsync("button[type='submit']");
 
-            // Wait for navigation to complete
             try
             {
-                await _page.WaitForNavigationAsync(new PageWaitForNavigationOptions { Timeout = WaitForNavigationTimeoutMs });
+                await _page.WaitForLoadStateAsync(LoadState.NetworkIdle,
+                    new PageWaitForLoadStateOptions { Timeout = 15000 });
             }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("Navigation timeout after password submission on CPS Golf");
-            }
+            catch (TimeoutException) { /* navigation may not fire */ }
 
-            // Verify we're logged in by checking if an error message appears
-            var errorSelector = "div[role='alert'], .alert-danger, .error";
-            var errorElement = await _page.QuerySelectorAsync(errorSelector);
-            if (errorElement != null)
+            // --- 2. Extract the OIDC bearer token from localStorage ---------
+            var tokenJson = await _page.EvaluateAsync<string?>(@"() => {
+                for (const key of Object.keys(localStorage)) {
+                    if (key.startsWith('oidc.user:')) {
+                        const val = localStorage.getItem(key);
+                        if (val) return val;
+                    }
+                }
+                return null;
+            }");
+
+            if (string.IsNullOrEmpty(tokenJson))
             {
-                var errorText = await errorElement.TextContentAsync();
-                _logger.LogWarning("Login error on CPS Golf: {ErrorText}", errorText);
+                _logger.LogWarning("CPS Golf: OIDC token not found in localStorage after login");
                 return false;
             }
 
-            _logger.LogInformation("CPS Golf login successful for {Email}", email);
+            using var tokenDoc = JsonDocument.Parse(tokenJson);
+            _bearerToken = tokenDoc.RootElement.GetProperty("access_token").GetString();
+
+            if (string.IsNullOrEmpty(_bearerToken))
+            {
+                _logger.LogWarning("CPS Golf: access_token is empty");
+                return false;
+            }
+
+            // --- 3. Fetch site options to get componentId and courseId ------
+            var options = await CallApiAsync<JsonElement>(
+                "GET", $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/GetAllOptions/{GetSiteCode()}",
+                ct: ct);
+
+            // componentId comes from the options payload
+            if (options.ValueKind == JsonValueKind.Object)
+            {
+                if (options.TryGetProperty("componentId", out var cid))
+                    _componentId = cid.GetString();
+                else if (options.TryGetProperty("ComponentId", out var cidU))
+                    _componentId = cidU.GetString();
+            }
+
+            // courseId - fetch courses list and take first active
+            var courses = await CallApiAsync<JsonElement>(
+                "GET", $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/OnlineCourses", ct: ct);
+
+            if (courses.ValueKind == JsonValueKind.Array && courses.GetArrayLength() > 0)
+            {
+                var first = courses.EnumerateArray().First();
+                _courseId = first.TryGetProperty("courseId", out var cId) ? cId.GetInt32() :
+                            first.TryGetProperty("CourseId", out var cIdU) ? cIdU.GetInt32() : 3;
+            }
+            else
+            {
+                _courseId = 3; // Paramus default
+            }
+
+            _logger.LogInformation(
+                "CPS Golf: Login successful — courseId={CourseId} componentId={ComponentId}",
+                _courseId, _componentId);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "CPS Golf login failed for {Email}", email);
+            _logger.LogError(ex, "CPS Golf: Login failed for {Email}", email);
             return false;
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Search
+    // ──────────────────────────────────────────────────────────────────────
+
     public async Task<List<TeeTimeSlot>> SearchAvailableSlotsAsync(
-        DateTime date,
-        TimeSpan preferredTime,
-        int windowMinutes,
-        int players,
+        DateTime date, TimeSpan preferredTime, int windowMinutes, int players,
         CancellationToken ct = default)
     {
         var slots = new List<TeeTimeSlot>();
-
         try
         {
-            if (_page == null)
+            // Register a transaction ID (required by CPS Golf API)
+            var txResponse = await CallApiAsync<JsonElement>(
+                "POST", $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
+                ct: ct);
+
+            string transactionId = txResponse.TryGetProperty("transactionId", out var tx)
+                ? tx.GetString() ?? Guid.NewGuid().ToString()
+                : txResponse.TryGetProperty("TransactionId", out var txU)
+                    ? txU.GetString() ?? Guid.NewGuid().ToString()
+                    : Guid.NewGuid().ToString();
+
+            // Format date the way CPS Golf expects: "Sat Mar 28 2026"
+            var searchDate = Uri.EscapeDataString(date.ToString("ddd MMM dd yyyy"));
+            var searchUrl  = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes" +
+                             $"?searchDate={searchDate}" +
+                             $"&holes=18" +
+                             $"&numberOfPlayer={players}" +
+                             $"&courseIds={_courseId}" +
+                             $"&searchTimeType=0" +
+                             $"&transactionId={transactionId}" +
+                             $"&teeOffTimeMin=0&teeOffTimeMax=23" +
+                             $"&isChangeTeeOffTime=true" +
+                             $"&teeSheetSearchView=5" +
+                             $"&classCode=RS" +
+                             $"&defaultOnlineRate=N" +
+                             $"&isUseCapacityPricing=false" +
+                             $"&memberStoreId=1" +
+                             $"&searchType=1";
+
+            var teeTimes = await CallApiAsync<JsonElement>("GET", searchUrl, ct: ct);
+
+            _logger.LogInformation("CPS Golf: Raw TeeTimes response kind={Kind}", teeTimes.ValueKind);
+
+            var teeTimesArray = teeTimes.ValueKind == JsonValueKind.Array
+                ? teeTimes
+                : teeTimes.TryGetProperty("teeTimes", out var nested) ? nested
+                : teeTimes.TryGetProperty("TeeTimes", out var nestedU) ? nestedU
+                : default;
+
+            if (teeTimesArray.ValueKind != JsonValueKind.Array)
             {
-                _logger.LogWarning("Page not initialized for CPS Golf search");
+                _logger.LogWarning("CPS Golf: Unexpected TeeTimes response format");
                 return slots;
             }
 
-            _logger.LogInformation("CPS Golf: Searching for slots on {Date} at {Time} for {Players} players",
-                date.Date, preferredTime, players);
-
-            // Navigate to search page
-            var searchUrl = $"{_currentBaseUrl?.TrimEnd('/')}/search-teetime";
-            await _page.GotoAsync(searchUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
-
-            // Fill date picker
-            var dateInput = await _page.QuerySelectorAsync("input[type='date']");
-            if (dateInput != null)
-            {
-                var dateString = date.ToString("yyyy-MM-dd");
-                _logger.LogInformation("Setting date filter to {Date}", dateString);
-                await _page.FillAsync("input[type='date']", dateString);
-            }
-
-            // Fill time filter
-            var timeInput = await _page.QuerySelectorAsync("input[type='time']");
-            if (timeInput != null)
-            {
-                var timeString = preferredTime.ToString(@"hh\:mm");
-                _logger.LogInformation("Setting time filter to {Time}", timeString);
-                await _page.FillAsync("input[type='time']", timeString);
-            }
-
-            // Submit search
-            var searchButton = await _page.QuerySelectorAsync("button[type='submit']");
-            if (searchButton != null)
-            {
-                _logger.LogInformation("Submitting CPS Golf search");
-                await searchButton.ClickAsync();
-
-                // Wait for results to load
-                await _page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-            }
-
-            // Parse available slots from results
-            var slotElements = await _page.QuerySelectorAllAsync(".tee-time-slot, [data-slot-id], .slot-card");
-            _logger.LogInformation("Found {SlotCount} slot elements on CPS Golf search results", slotElements.Count);
-
-            foreach (var element in slotElements)
+            foreach (var tt in teeTimesArray.EnumerateArray())
             {
                 try
                 {
-                    // Extract slot information
-                    var slotId = await element.GetAttributeAsync("data-slot-id");
-                    var timeText = await element.TextContentAsync();
-                    var availableText = await element.GetAttributeAsync("data-available");
+                    // Extract the slot time
+                    string? timeStr = GetStringProp(tt,
+                        "teeOffDateTime", "TeeOffDateTime", "teeOffTime", "TeeOffTime",
+                        "startTime", "StartTime");
 
-                    if (string.IsNullOrEmpty(slotId) || string.IsNullOrEmpty(timeText))
+                    if (!DateTime.TryParse(timeStr, out var slotDt))
                         continue;
 
-                    // Parse time from text (format varies, typically "10:30 AM" or similar)
-                    if (!TryParseTimeFromText(timeText, date, out var slotDateTime))
+                    // Check within window
+                    if (!IsWithinWindow(slotDt.TimeOfDay, preferredTime, windowMinutes))
                         continue;
 
-                    // Check if within window
-                    if (!IsWithinTimeWindow(slotDateTime.TimeOfDay, preferredTime, windowMinutes))
+                    // Available player spots
+                    int available = GetIntProp(tt,
+                        "availableSlots", "AvailableSlots", "openSlots", "OpenSlots",
+                        "availablePlayers", "maxGuest", "MaxGuest") ?? 4;
+
+                    if (available < players)
                         continue;
 
-                    // Parse available players
-                    if (!int.TryParse(availableText, out int availablePlayers))
-                        availablePlayers = 4; // Default to 4 if not specified
+                    // Slot identifier for booking
+                    string slotId = GetStringProp(tt,
+                        "teeTimeId", "TeeTimeId", "scheduleId", "ScheduleId", "id", "Id")
+                        ?? slotDt.ToString("HHmm");
 
-                    if (availablePlayers < players)
-                        continue;
-
-                    var slot = new TeeTimeSlot
+                    slots.Add(new TeeTimeSlot
                     {
-                        SlotId = slotId,
-                        DateTime = slotDateTime,
-                        AvailablePlayers = availablePlayers,
-                        CourseName = "CPS Golf Course"
-                    };
-
-                    slots.Add(slot);
-                    _logger.LogDebug("Added slot: {SlotId} at {DateTime}", slotId, slotDateTime);
+                        SlotId           = slotId,
+                        DateTime         = slotDt,
+                        AvailablePlayers = available,
+                        CourseName       = "Paramus Golf Course"
+                    });
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error parsing CPS Golf slot element");
+                    _logger.LogWarning(ex, "CPS Golf: Error parsing tee time slot");
                 }
             }
 
-            _logger.LogInformation("CPS Golf search complete: found {SlotCount} matching slots", slots.Count);
+            _logger.LogInformation("CPS Golf: Found {Count} matching slots", slots.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "CPS Golf search failed");
+            _logger.LogError(ex, "CPS Golf: Search failed");
         }
-
         return slots;
     }
 
-    public async Task<BookingAdapterResult> BookSlotAsync(TeeTimeSlot slot, int players, CancellationToken ct = default)
+    // ──────────────────────────────────────────────────────────────────────
+    // Book
+    // ──────────────────────────────────────────────────────────────────────
+
+    public async Task<BookingAdapterResult> BookSlotAsync(TeeTimeSlot slot, int players,
+        CancellationToken ct = default)
     {
         var result = new BookingAdapterResult();
-
         try
         {
-            if (_page == null)
+            // Register a fresh transaction ID for the booking
+            var txResponse = await CallApiAsync<JsonElement>(
+                "POST", $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
+                ct: ct);
+
+            string transactionId = txResponse.TryGetProperty("transactionId", out var tx)
+                ? tx.GetString() ?? Guid.NewGuid().ToString()
+                : Guid.NewGuid().ToString();
+
+            var bookingPayload = new
             {
-                result.ErrorMessage = "Page not initialized";
-                _logger.LogWarning("Page not initialized for CPS Golf booking");
-                return result;
-            }
+                teeTimeId     = slot.SlotId,
+                courseId      = _courseId,
+                numberOfPlayer = players,
+                transactionId,
+                holes         = 18,
+                classCode     = "RS"
+            };
 
-            _logger.LogInformation("CPS Golf: Booking slot {SlotId} at {DateTime} for {Players} players",
-                slot.SlotId, slot.DateTime, players);
+            var bookUrl = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime";
+            var response = await CallApiAsync<JsonElement>("POST", bookUrl, bookingPayload, ct);
 
-            // Click the slot to select it
-            var slotElement = await _page.QuerySelectorAsync($"[data-slot-id='{slot.SlotId}']");
-            if (slotElement == null)
+            // Check confirmation
+            string? confirmationNumber = GetStringProp(response,
+                "confirmationNumber", "ConfirmationNumber",
+                "confirmationId",   "ConfirmationId",
+                "reservationNumber","ReservationNumber");
+
+            bool success = !string.IsNullOrEmpty(confirmationNumber)
+                        || GetBoolProp(response, "success", "Success", "isSuccess", "IsSuccess");
+
+            if (success)
             {
-                result.ErrorMessage = "Slot not found on page";
-                _logger.LogWarning("Slot {SlotId} not found on CPS Golf page", slot.SlotId);
-                return result;
-            }
-
-            await slotElement.ClickAsync();
-            await _page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-
-            // Fill player count if applicable
-            var playerCountInput = await _page.QuerySelectorAsync("input[name='playerCount'], input[name='players']");
-            if (playerCountInput != null)
-            {
-                _logger.LogInformation("Setting player count to {Players}", players);
-                await _page.FillAsync("input[name='playerCount']", players.ToString());
-            }
-
-            // Submit booking
-            var bookButton = await _page.QuerySelectorAsync("button[type='submit']");
-            if (bookButton != null)
-            {
-                _logger.LogInformation("Submitting CPS Golf booking");
-                await bookButton.ClickAsync();
-                await _page.WaitForNavigationAsync(new PageWaitForNavigationOptions { Timeout = WaitForNavigationTimeoutMs });
-            }
-
-            // Check for confirmation
-            var confirmationElement = await _page.QuerySelectorAsync(".confirmation-number, [data-confirmation]");
-            if (confirmationElement != null)
-            {
-                var confirmationText = await confirmationElement.TextContentAsync();
-                result.ConfirmationNumber = ExtractConfirmationNumber(confirmationText);
-                result.BookedTime = slot.DateTime;
-                result.Success = true;
-                _logger.LogInformation("CPS Golf booking successful: {ConfirmationNumber}", result.ConfirmationNumber);
+                result.Success            = true;
+                result.ConfirmationNumber = confirmationNumber ?? $"CPS-{slot.SlotId}";
+                result.BookedTime         = slot.DateTime;
+                _logger.LogInformation("CPS Golf: Booking confirmed — {Confirmation}",
+                    result.ConfirmationNumber);
             }
             else
             {
-                // Check for error message
-                var errorElement = await _page.QuerySelectorAsync(".error, .alert-danger, [role='alert']");
-                if (errorElement != null)
-                {
-                    result.ErrorMessage = await errorElement.TextContentAsync();
-                }
-                else
-                {
-                    result.ErrorMessage = "Booking may have failed - no confirmation found";
-                }
-                _logger.LogWarning("CPS Golf booking may have failed: {ErrorMessage}", result.ErrorMessage);
+                result.ErrorMessage = GetStringProp(response,
+                    "message", "Message", "errorMessage", "ErrorMessage")
+                    ?? "Booking failed — no confirmation returned";
+                _logger.LogWarning("CPS Golf: Booking failed — {Error}", result.ErrorMessage);
             }
         }
         catch (Exception ex)
         {
             result.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "CPS Golf booking failed");
+            _logger.LogError(ex, "CPS Golf: BookSlotAsync failed");
         }
-
         return result;
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)
     {
-        try
+        if (_page != null)
         {
-            _logger.LogInformation("CPS Golf: Logging out");
-
-            if (_page != null)
-            {
-                // Look for logout button
-                var logoutButton = await _page.QuerySelectorAsync("button[data-logout], a[href*='logout']");
-                if (logoutButton != null)
-                {
-                    await logoutButton.ClickAsync();
-                    try
-                    {
-                        await _page.WaitForNavigationAsync(new PageWaitForNavigationOptions { Timeout = WaitForNavigationTimeoutMs });
-                    }
-                    catch
-                    {
-                        // Navigation may not occur
-                    }
-                }
-
-                await _page.CloseAsync();
-                _page = null;
-            }
-
-            _logger.LogInformation("CPS Golf logout complete");
+            await _page.CloseAsync();
+            _page = null;
         }
-        catch (Exception ex)
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ──────────────────────────────────────────────────────────────────────
+
+    private async Task<T> CallApiAsync<T>(string method, string url, object? body = null,
+        CancellationToken ct = default)
+    {
+        var client  = _httpClientFactory.CreateClient("CpsGolf");
+        var request = new HttpRequestMessage(new HttpMethod(method), url);
+
+        if (!string.IsNullOrEmpty(_bearerToken))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
+
+        if (!string.IsNullOrEmpty(_componentId))
+            request.Headers.TryAddWithoutValidation("componentid", _componentId);
+
+        if (body != null)
         {
-            _logger.LogError(ex, "CPS Golf logout error");
+            var json = JsonSerializer.Serialize(body);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         }
+
+        var response = await client.SendAsync(request, ct);
+        var content  = await response.Content.ReadAsStringAsync(ct);
+
+        _logger.LogDebug("CPS Golf API {Method} {Url} → {Status}", method, url,
+            (int)response.StatusCode);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("CPS Golf API error {Status}: {Body}", (int)response.StatusCode,
+                content.Length > 500 ? content[..500] : content);
+            return default!;
+        }
+
+        if (string.IsNullOrWhiteSpace(content)) return default!;
+
+        try { return JsonSerializer.Deserialize<T>(content)!; }
+        catch { return default!; }
+    }
+
+    private string GetSiteCode()
+    {
+        if (string.IsNullOrEmpty(_baseUrl)) return "paramus";
+        var host = new Uri(_baseUrl).Host; // paramus.cps.golf
+        return host.Split('.')[0];         // paramus
+    }
+
+    private static string? GetStringProp(JsonElement el, params string[] names)
+    {
+        foreach (var name in names)
+            if (el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String)
+                return p.GetString();
+        return null;
+    }
+
+    private static int? GetIntProp(JsonElement el, params string[] names)
+    {
+        foreach (var name in names)
+            if (el.TryGetProperty(name, out var p) &&
+                p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var i))
+                return i;
+        return null;
+    }
+
+    private static bool GetBoolProp(JsonElement el, params string[] names)
+    {
+        foreach (var name in names)
+            if (el.TryGetProperty(name, out var p) &&
+               (p.ValueKind == JsonValueKind.True || p.ValueKind == JsonValueKind.False))
+                return p.GetBoolean();
+        return false;
+    }
+
+    private static bool IsWithinWindow(TimeSpan slotTime, TimeSpan preferred, int windowMinutes)
+    {
+        var diff = (slotTime - preferred).Duration();
+        return diff <= TimeSpan.FromMinutes(windowMinutes);
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
         try
         {
-            if (_page != null)
-                await _page.CloseAsync();
-
-            if (_browser != null)
-                await _browser.CloseAsync();
+            if (_page    != null) await _page.CloseAsync();
+            if (_browser != null) await _browser.CloseAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error disposing CPS Golf adapter");
+            _logger.LogError(ex, "CPS Golf: Dispose error");
         }
-    }
-
-    private static bool TryParseTimeFromText(string? text, DateTime date, out DateTime result)
-    {
-        result = DateTime.MinValue;
-
-        if (string.IsNullOrEmpty(text))
-            return false;
-
-        // Try to find time pattern (HH:MM or H:MM with optional AM/PM)
-        var timePattern = @"(\d{1,2}):(\d{2})\s*(AM|PM)?";
-        var match = System.Text.RegularExpressions.Regex.Match(text, timePattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        if (!match.Success)
-            return false;
-
-        var hour = int.Parse(match.Groups[1].Value);
-        var minute = int.Parse(match.Groups[2].Value);
-        var meridiem = match.Groups[3].Value?.ToUpper();
-
-        // Handle 12-hour format
-        if (!string.IsNullOrEmpty(meridiem))
-        {
-            if (meridiem == "PM" && hour != 12)
-                hour += 12;
-            else if (meridiem == "AM" && hour == 12)
-                hour = 0;
-        }
-
-        try
-        {
-            result = date.Date.AddHours(hour).AddMinutes(minute);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool IsWithinTimeWindow(TimeSpan slotTime, TimeSpan preferredTime, int windowMinutes)
-    {
-        var windowStart = preferredTime.Add(TimeSpan.FromMinutes(-windowMinutes));
-        var windowEnd = preferredTime.Add(TimeSpan.FromMinutes(windowMinutes));
-
-        return slotTime >= windowStart && slotTime <= windowEnd;
-    }
-
-    private static string ExtractConfirmationNumber(string? text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-
-        // Look for confirmation number patterns (alphanumeric, typically 6-12 chars)
-        var match = System.Text.RegularExpressions.Regex.Match(text, @"[A-Z0-9]{6,12}");
-        return match.Success ? match.Value : string.Empty;
     }
 }

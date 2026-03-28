@@ -106,6 +106,9 @@ public class BookingRequestDto
     [JsonProperty("updatedAt")]
     public DateTime UpdatedAt { get; set; }
 
+    [JsonProperty("errorMessage")]
+    public string? ErrorMessage { get; set; }
+
     [JsonProperty("bookingResult")]
     public BookingResultDto? BookingResult { get; set; }
 }

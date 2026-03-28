@@ -83,22 +83,31 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
                 <span class="detail-value">±{{ booking.timeWindowMinutes }} minutes</span>
               </div>
 
-              <div class="detail-item">
+              <div class="detail-item" *ngIf="booking.bookingResult?.attemptCount">
                 <span class="detail-label">
                   <mat-icon>access_time</mat-icon>
                   Attempts
                 </span>
-                <span class="detail-value">{{ booking.attempts }}</span>
+                <span class="detail-value">{{ booking.bookingResult?.attemptCount }}</span>
               </div>
 
-              <div class="detail-item" *ngIf="booking.nextAttempt">
+              <div class="detail-item" *ngIf="booking.scheduledFireTime">
                 <span class="detail-label">
-                  <mat-icon>schedule</mat-icon>
-                  Next Attempt
+                  <mat-icon>alarm</mat-icon>
+                  Scheduled Fire Time
                 </span>
                 <span class="detail-value">
-                  {{ booking.nextAttempt | date: 'MMM dd, HH:mm' }}
+                  {{ booking.scheduledFireTime | date: 'MMM dd, yyyy HH:mm' }}
                 </span>
+              </div>
+            </div>
+
+            <!-- Error message banner for failed bookings -->
+            <div class="error-banner" *ngIf="booking.status === BookingStatus.FAILED && booking.errorMessage">
+              <mat-icon>error_outline</mat-icon>
+              <div>
+                <div class="error-banner-title">Booking Failed</div>
+                <div class="error-banner-message">{{ booking.errorMessage }}</div>
               </div>
             </div>
 
@@ -146,50 +155,36 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
             <div class="result-grid">
               <div class="result-item" *ngIf="booking.bookingResult.confirmationNumber">
                 <span class="result-label">Confirmation Number</span>
-                <span class="result-value">
+                <span class="result-value confirmation">
                   {{ booking.bookingResult.confirmationNumber }}
                 </span>
               </div>
 
-              <div class="result-item" *ngIf="booking.bookingResult.bookingDate">
-                <span class="result-label">Booked Date</span>
-                <span class="result-value">
-                  {{ booking.bookingResult.bookingDate }}
-                </span>
-              </div>
-
-              <div class="result-item" *ngIf="booking.bookingResult.bookingTime">
+              <div class="result-item" *ngIf="booking.bookingResult.bookedTime">
                 <span class="result-label">Booked Time</span>
                 <span class="result-value">
-                  {{ booking.bookingResult.bookingTime }}
+                  {{ booking.bookingResult.bookedTime | date: 'MMM dd, yyyy h:mm a' }}
                 </span>
               </div>
 
-              <div class="result-item" *ngIf="booking.bookingResult.playersConfirmed">
-                <span class="result-label">Players Confirmed</span>
+              <div class="result-item" *ngIf="booking.bookingResult.attemptCount">
+                <span class="result-label">Attempts</span>
                 <span class="result-value">
-                  {{ booking.bookingResult.playersConfirmed }}
+                  {{ booking.bookingResult.attemptCount }}
                 </span>
               </div>
 
-              <div class="result-item" *ngIf="booking.bookingResult.totalCost">
-                <span class="result-label">Total Cost</span>
+              <div class="result-item" *ngIf="booking.bookingResult.lastAttemptAt">
+                <span class="result-label">Last Attempt</span>
                 <span class="result-value">
-                  {{ booking.bookingResult.totalCost | currency:'USD' }}
+                  {{ booking.bookingResult.lastAttemptAt | date: 'MMM dd, HH:mm' }}
                 </span>
               </div>
 
-              <div class="result-item" *ngIf="booking.bookingResult.courseContact">
-                <span class="result-label">Course Contact</span>
-                <span class="result-value">
-                  {{ booking.bookingResult.courseContact }}
-                </span>
-              </div>
-
-              <div class="result-item error" *ngIf="booking.bookingResult.errorMessage">
-                <span class="result-label">Error</span>
+              <div class="result-item error" *ngIf="booking.bookingResult.failureReason">
+                <span class="result-label">Failure Reason</span>
                 <span class="result-value error-text">
-                  {{ booking.bookingResult.errorMessage }}
+                  {{ booking.bookingResult.failureReason }}
                 </span>
               </div>
             </div>
@@ -349,6 +344,33 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
       gap: 1.5rem;
     }
 
+    .error-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      background-color: rgba(211, 47, 47, 0.1);
+      border-left: 4px solid #d32f2f;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-top: 1.5rem;
+      color: #ff6b6b;
+
+      mat-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      .error-banner-title {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      .error-banner-message {
+        font-size: 0.9rem;
+        opacity: 0.9;
+      }
+    }
+
     .result-item {
       display: flex;
       flex-direction: column;
@@ -359,7 +381,15 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
         padding: 1rem;
         border-radius: 4px;
         border-left: 4px solid #d32f2f;
+        grid-column: 1 / -1;
       }
+    }
+
+    .confirmation {
+      font-family: monospace;
+      font-size: 1.1rem;
+      letter-spacing: 1px;
+      color: #81c784 !important;
     }
 
     .result-label {

@@ -108,11 +108,15 @@ public class BookTeeTimeJob
 
                 if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
                 {
-                    await _smsService.SendBookingFailureAsync(
-                        bookingRequest.User.PhoneNumber,
-                        course.CourseName,
-                        bookingRequest.DesiredDate,
-                        "Login failed");
+                    try
+                    {
+                        await _smsService.SendBookingFailureAsync(
+                            bookingRequest.User.PhoneNumber,
+                            course.CourseName,
+                            bookingRequest.DesiredDate,
+                            "Login failed");
+                    }
+                    catch (Exception smsEx) { _logger.LogWarning(smsEx, "Failed to send login-failure SMS for booking {BookingRequestId}", bookingRequestId); }
                 }
                 return;
             }
@@ -157,11 +161,15 @@ public class BookTeeTimeJob
 
                     if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))
                     {
-                        await _smsService.SendBookingConfirmationAsync(
-                            bookingRequest.User.PhoneNumber,
-                            course.CourseName,
-                            bookingResult.BookedTime ?? selectedSlot.DateTime,
-                            bookingResult.ConfirmationNumber);
+                        try
+                        {
+                            await _smsService.SendBookingConfirmationAsync(
+                                bookingRequest.User.PhoneNumber,
+                                course.CourseName,
+                                bookingResult.BookedTime ?? selectedSlot.DateTime,
+                                bookingResult.ConfirmationNumber);
+                        }
+                        catch (Exception smsEx) { _logger.LogWarning(smsEx, "Failed to send confirmation SMS for booking {BookingRequestId}", bookingRequestId); }
                     }
 
                     _logger.LogInformation("BookTeeTimeJob completed successfully for request {BookingRequestId}", bookingRequestId);

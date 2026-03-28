@@ -8,11 +8,11 @@ export interface BookingRequest {
   timeWindowMinutes: number;
   numberOfPlayers: number;
   status: BookingStatus;
+  errorMessage?: string;
+  scheduledFireTime?: Date;
   bookingResult?: BookingResult;
   createdAt: Date;
   updatedAt: Date;
-  nextAttempt?: Date;
-  attempts: number;
 }
 
 export interface CreateBookingRequest {
@@ -24,13 +24,14 @@ export interface CreateBookingRequest {
 }
 
 export interface BookingResult {
+  resultId: number;
+  bookedTime?: string;
   confirmationNumber?: string;
-  bookingTime?: string;
-  bookingDate?: string;
-  playersConfirmed: number;
-  courseContact?: string;
-  totalCost?: number;
-  errorMessage?: string;
+  attemptCount: number;
+  lastAttemptAt?: string;
+  failureReason?: string;
+  isSuccess: boolean;
+  createdAt: string;
 }
 
 export enum BookingStatus {

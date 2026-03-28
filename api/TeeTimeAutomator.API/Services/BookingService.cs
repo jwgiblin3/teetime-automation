@@ -472,6 +472,7 @@ public class BookingService : IBookingService
             TimeWindowMinutes = request.TimeWindowMinutes,
             NumberOfPlayers = request.NumberOfPlayers,
             Status = request.Status,
+            ErrorMessage = request.ErrorMessage,
             ScheduledFireTime = request.ScheduledFireTime,
             CreatedAt = request.CreatedAt,
             UpdatedAt = request.UpdatedAt,

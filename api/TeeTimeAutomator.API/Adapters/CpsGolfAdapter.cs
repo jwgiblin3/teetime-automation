@@ -355,9 +355,6 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         if (!string.IsNullOrEmpty(_bearerToken))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
 
-        if (!string.IsNullOrEmpty(_componentId))
-            request.Headers.TryAddWithoutValidation("componentid", _componentId);
-
         if (body != null)
         {
             var json = JsonSerializer.Serialize(body);
@@ -390,9 +387,6 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
         if (!string.IsNullOrEmpty(_bearerToken))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
-
-        if (!string.IsNullOrEmpty(_componentId))
-            request.Headers.TryAddWithoutValidation("componentid", _componentId);
 
         if (body != null)
         {

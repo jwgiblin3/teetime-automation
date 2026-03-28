@@ -101,9 +101,12 @@ public class BookTeeTimeJob
 
             if (!loginSuccess)
             {
-                _logger.LogWarning("Login failed for booking request {BookingRequestId}", bookingRequestId);
+                // Get the real error from the adapter if available
+                var loginError = (adapter as TeeTimeAutomator.API.Adapters.CpsGolfAdapter)?.LoginErrorMessage
+                    ?? "Login failed - check credentials and booking URL";
+                _logger.LogWarning("Login failed for booking request {BookingRequestId}: {Error}", bookingRequestId, loginError);
                 bookingRequest.Status = BookingStatus.Failed;
-                bookingRequest.ErrorMessage = "Login failed - invalid credentials or connection error";
+                bookingRequest.ErrorMessage = $"Login failed: {loginError}";
                 await _dbContext.SaveChangesAsync();
 
                 if (!string.IsNullOrEmpty(bookingRequest.User?.PhoneNumber))

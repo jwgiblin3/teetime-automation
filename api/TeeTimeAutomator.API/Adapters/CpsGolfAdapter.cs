@@ -19,10 +19,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
     private IBrowser?  _browser;
     private IPage?     _page;
-    private string?    _baseUrl;
+    private string?    _baseUrl;      // scheme + host only, e.g. "https://paramus.cps.golf"
     private string?    _bearerToken;
     private string?    _componentId;
     private int        _courseId;
+    private string?    _lastLoginError; // surfaced to caller via LoginErrorMessage
 
     private const int TimeoutMs = 30000;
 
@@ -36,13 +37,21 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     // Login
     // ──────────────────────────────────────────────────────────────────────
 
+    /// <summary>The actual error message from the last failed login attempt.</summary>
+    public string? LoginErrorMessage => _lastLoginError;
+
     public async Task<bool> LoginAsync(string url, string email, string password,
         CancellationToken ct = default)
     {
+        _lastLoginError = null;
         try
         {
             _logger.LogInformation("CPS Golf: Starting login for {Email} on {Url}", email, url);
-            _baseUrl = url.TrimEnd('/');
+
+            // Always extract just scheme+host so API calls use the root domain
+            var uri = new Uri(url.StartsWith("http") ? url : "https://" + url);
+            _baseUrl = $"{uri.Scheme}://{uri.Host}";
+            _logger.LogInformation("CPS Golf: Base URL resolved to {BaseUrl}", _baseUrl);
 
             // --- 1. Use Playwright to log in and capture the OIDC token ----
             var playwright = await Playwright.CreateAsync();
@@ -55,7 +64,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             _page = await _browser.NewPageAsync();
             _page.SetDefaultTimeout(TimeoutMs);
 
-            await _page.GotoAsync($"{_baseUrl}/auth/verify-email",
+            // CPS Golf login is always at /onlineresweb/auth/verify-email
+            var loginUrl = $"{_baseUrl}/onlineresweb/auth/verify-email";
+            _logger.LogInformation("CPS Golf: Navigating to login page {LoginUrl}", loginUrl);
+            await _page.GotoAsync(loginUrl,
                 new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
             // Enter email
@@ -152,6 +164,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            _lastLoginError = ex.Message;
             _logger.LogError(ex, "CPS Golf: Login failed for {Email}", email);
             return false;
         }

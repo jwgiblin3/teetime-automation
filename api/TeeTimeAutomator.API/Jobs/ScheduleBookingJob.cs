@@ -110,25 +110,35 @@ public class ScheduleBookingJob
 
     private DateTime CalculateScheduleFireTime(DateTime desiredDate, ReleaseSchedule schedule)
     {
-        var releaseDateTime = desiredDate
-            .AddDays(-schedule.DaysInAdvance)
-            .Date
-            .AddHours(schedule.ReleaseHour)
-            .AddMinutes(schedule.ReleaseMinute);
+        var releaseDate = desiredDate.AddDays(-schedule.DaysInAdvance).Date;
+
+        // Parse "HH:mm" release time string
+        var releaseDateTime = releaseDate;
+        if (!string.IsNullOrEmpty(schedule.ReleaseTime) &&
+            TimeOnly.TryParse(schedule.ReleaseTime, out var releaseTime))
+        {
+            releaseDateTime = releaseDate.Add(releaseTime.ToTimeSpan());
+        }
+        else
+        {
+            releaseDateTime = releaseDate.AddHours(schedule.ReleaseHour).AddMinutes(schedule.ReleaseMinute);
+        }
 
         if (releaseDateTime <= DateTime.UtcNow)
         {
-            _logger.LogWarning("Calculated release time is in the past, scheduling for immediate execution");
-            return DateTime.UtcNow.AddSeconds(1);
+            _logger.LogWarning("Calculated release time {ReleaseTime} is in the past, scheduling for immediate execution", releaseDateTime);
+            return DateTime.UtcNow.AddSeconds(5);
         }
 
+        _logger.LogInformation("Booking scheduled to fire at {FireTime} (release window for {DesiredDate})", releaseDateTime, desiredDate);
         return releaseDateTime;
     }
 
     private class ReleaseSchedule
     {
         public int DaysInAdvance { get; set; } = 7;
-        public int ReleaseHour { get; set; } = 8;
+        public string? ReleaseTime { get; set; }  // "HH:mm" — matches stored JSON format
+        public int ReleaseHour { get; set; } = 8;   // fallback if ReleaseTime missing
         public int ReleaseMinute { get; set; } = 0;
     }
 }

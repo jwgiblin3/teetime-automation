@@ -390,7 +390,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 HttpMethod.Post,
                 $"{_baseUrl}/identityapi/myconnect/token/short");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
-            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            // myconnect/token/short requires client_id in the body
+            request.Content = new StringContent(
+                "{\"client_id\":\"onlinereswebshortlived\"}",
+                Encoding.UTF8, "application/json");
 
             var response = await client.SendAsync(request, ct);
             var body     = await response.Content.ReadAsStringAsync(ct);

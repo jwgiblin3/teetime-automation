@@ -166,9 +166,9 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             if (teeTimes.ValueKind == JsonValueKind.Undefined)
             {
-                _logger.LogWarning("CPS Golf: TeeTimes response could not be parsed as JSON — raw: {Raw}",
-                    rawBody.Length > 200 ? rawBody[..200] : rawBody);
-                return slots;
+                var errMsg = rawBody.Length > 300 ? rawBody[..300] : rawBody;
+                _logger.LogWarning("CPS Golf: TeeTimes API error — {Raw}", errMsg);
+                throw new InvalidOperationException($"TeeTimes search failed: {errMsg}");
             }
 
             var teeTimesArray = teeTimes.ValueKind == JsonValueKind.Array
@@ -234,6 +234,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "CPS Golf: SearchAvailableSlotsAsync failed");
+            throw;
         }
         return slots;
     }

@@ -7,24 +7,36 @@ namespace TeeTimeAutomator.API.Adapters;
 
 /// <summary>
 /// Booking adapter for CPS Golf (Club Prophet Systems) tee time systems.
-/// Authenticates via direct OAuth2 password grant against the CPS identity server —
-/// no browser automation required. All subsequent calls use HttpClient.
+/// Authenticates via direct OAuth2 password grant against the CPS identity server.
+/// Uses a short-lived token for read operations (TeeTimes search) and the main
+/// access token for write operations (TeeTimePricesCalculation, SaveTeeTime).
 /// </summary>
 public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 {
     private readonly ILogger<CpsGolfAdapter> _logger;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IHttpClientFactory     _httpClientFactory;
 
-    private string? _baseUrl;       // scheme + host only, e.g. "https://paramus.cps.golf"
-    private string? _bearerToken;
-    private string? _componentId;
-    private int     _courseId;
+    // OAuth tokens
+    private string? _bearerToken;       // main access token (client_id=js1, 1-hr expiry)
+    private string? _shortLivedToken;   // short-lived token (client_id=onlinereswebshortlived, 10-min expiry)
+
+    // Site config resolved at login
+    private string? _baseUrl;           // e.g. "https://paramus.cps.golf"
+    private int     _courseId    = 3;   // Paramus Golf Course default
+    private int     _siteId      = 4;   // Paramus site default
+    private string  _classCode   = "RS";
+    private string  _memberStoreId = "1";
+    private int     _golferId    = 0;
+    private string  _acct        = "0";
     private string? _lastLoginError;
 
-    // CPS Golf OIDC client credentials — sourced from /onlineresweb/assets/env.js (public)
+    // CPS Golf OIDC client credentials (public — from /onlineresweb/assets/env.js)
     private const string OidcClientId     = "js1";
     private const string OidcClientSecret = "v4secret";
-    private const string OidcScope        = "openid profile onlinereservation";
+
+    // Full scope required for booking (includes sale/inventory for SaveTeeTime)
+    private const string OidcScope =
+        "openid profile onlinereservation sale inventory sh customer email recommend references";
 
     public CpsGolfAdapter(ILogger<CpsGolfAdapter> logger, IHttpClientFactory httpClientFactory)
     {
@@ -32,12 +44,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         _httpClientFactory = httpClientFactory;
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // Login — direct OAuth2 password grant, no Playwright
-    // ──────────────────────────────────────────────────────────────────────
-
-    /// <summary>The actual error message from the last failed login attempt.</summary>
     public string? LoginErrorMessage => _lastLoginError;
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Login
+    // ──────────────────────────────────────────────────────────────────────────
 
     public async Task<bool> LoginAsync(string url, string email, string password,
         CancellationToken ct = default)
@@ -45,15 +56,15 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         _lastLoginError = null;
         try
         {
-            var uri = new Uri(url.StartsWith("http") ? url : "https://" + url);
+            var uri  = new Uri(url.StartsWith("http") ? url : "https://" + url);
             _baseUrl = $"{uri.Scheme}://{uri.Host}";
             _logger.LogInformation("CPS Golf: Authenticating {Email} against {BaseUrl}", email, _baseUrl);
 
             var client = _httpClientFactory.CreateClient("CpsGolf");
 
-            // POST to OIDC token endpoint using Resource Owner Password Credentials grant
+            // ── Step 1: Get main access token via ROPC grant ──────────────────
             var tokenEndpoint = $"{_baseUrl}/identityapi/connect/token";
-            var tokenRequest = new FormUrlEncodedContent(new Dictionary<string, string>
+            var tokenRequest  = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"]    = "password",
                 ["username"]      = email,
@@ -66,7 +77,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var tokenResponse = await client.PostAsync(tokenEndpoint, tokenRequest, ct);
             var responseBody  = await tokenResponse.Content.ReadAsStringAsync(ct);
 
-            _logger.LogInformation("CPS Golf: Token endpoint returned {Status}", tokenResponse.StatusCode);
+            _logger.LogInformation("CPS Golf: Token endpoint → {Status}", tokenResponse.StatusCode);
 
             if (!tokenResponse.IsSuccessStatusCode)
             {
@@ -78,69 +89,31 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             using var tokenDoc = JsonDocument.Parse(responseBody);
             if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenEl))
             {
-                _lastLoginError = $"Token response missing access_token. Body: {responseBody[..Math.Min(300, responseBody.Length)]}";
-                _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
+                _lastLoginError = $"Token response missing access_token: {responseBody[..Math.Min(300, responseBody.Length)]}";
                 return false;
             }
 
             _bearerToken = accessTokenEl.GetString();
             if (string.IsNullOrEmpty(_bearerToken))
             {
-                _lastLoginError = "access_token was empty in token response";
+                _lastLoginError = "access_token was empty";
                 return false;
             }
 
-            _logger.LogInformation("CPS Golf: OAuth token obtained successfully");
+            _logger.LogInformation("CPS Golf: Main token obtained");
 
-            // Step 1: Try to extract componentId from the JWT token claims
-            TryExtractComponentIdFromJwt();
+            // Extract user claims from JWT (golferId, acct, classCode, storeId)
+            ExtractUserClaimsFromJwt();
 
-            // Step 2: If not in JWT, try GetAllOptions (it returns componentId for some sites)
-            if (string.IsNullOrEmpty(_componentId))
-            {
-                var (rawOptions, options) = await CallApiRawAsync<JsonElement>(
-                    "GET",
-                    $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/GetAllOptions/{GetSiteCode()}",
-                    ct: ct);
+            // ── Step 2: Exchange for short-lived token (used for TeeTimes search) ──
+            await TryGetShortLivedTokenAsync(ct);
 
-                _logger.LogInformation("CPS Golf: GetAllOptions response: {Body}",
-                    rawOptions.Length > 1000 ? rawOptions[..1000] : rawOptions);
+            // ── Step 3: Fetch course list to get courseId + siteId ────────────
+            await FetchCourseInfoAsync(ct);
 
-                if (options.ValueKind == JsonValueKind.Object)
-                {
-                    // Try every plausible field name
-                    foreach (var name in new[] { "componentId", "ComponentId", "compId", "CompId", "comp_id" })
-                    {
-                        if (options.TryGetProperty(name, out var cid))
-                        {
-                            _componentId = cid.ValueKind == JsonValueKind.String ? cid.GetString()
-                                         : cid.ValueKind == JsonValueKind.Number ? cid.GetInt64().ToString()
-                                         : null;
-                            if (!string.IsNullOrEmpty(_componentId)) break;
-                        }
-                    }
-                }
-            }
-
-            // Fetch courseId from online courses list
-            var courses = await CallApiAsync<JsonElement>(
-                "GET",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/OnlineCourses",
-                ct: ct);
-
-            if (courses.ValueKind == JsonValueKind.Array && courses.GetArrayLength() > 0)
-            {
-                var first = courses.EnumerateArray().First();
-                _courseId = first.TryGetProperty("courseId", out var cId)  ? cId.GetInt32()  :
-                            first.TryGetProperty("CourseId", out var cIdU) ? cIdU.GetInt32() : 3;
-            }
-            else
-            {
-                _courseId = 3; // Paramus default fallback
-            }
-
-            _logger.LogInformation("CPS Golf: Ready — courseId={CourseId} componentId={ComponentId}",
-                _courseId, _componentId);
+            _logger.LogInformation(
+                "CPS Golf: Ready — courseId={CourseId} siteId={SiteId} golferId={GolferId} classCode={ClassCode}",
+                _courseId, _siteId, _golferId, _classCode);
             return true;
         }
         catch (Exception ex)
@@ -151,9 +124,9 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
     // Search
-    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
 
     public async Task<List<TeeTimeSlot>> SearchAvailableSlotsAsync(
         DateTime date, TimeSpan preferredTime, int windowMinutes, int players,
@@ -162,22 +135,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         var slots = new List<TeeTimeSlot>();
         try
         {
-            // Register a transaction ID (required by CPS Golf API)
-            var txResponse = await CallApiAsync<JsonElement>(
-                "POST",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
-                ct: ct);
+            // Register transaction (use short-lived token)
+            var transactionId = await RegisterTransactionAsync(useShortToken: true, ct);
 
-            string transactionId = Guid.NewGuid().ToString();
-            if (txResponse.ValueKind == JsonValueKind.Object)
-            {
-                if (txResponse.TryGetProperty("transactionId", out var tx) && tx.ValueKind == JsonValueKind.String)
-                    transactionId = tx.GetString() ?? transactionId;
-                else if (txResponse.TryGetProperty("TransactionId", out var txU) && txU.ValueKind == JsonValueKind.String)
-                    transactionId = txU.GetString() ?? transactionId;
-            }
-
-            // Format date the way CPS Golf expects: "Sat Mar 28 2026"
+            // Format date: "Sat Mar 28 2026"
             var searchDate = Uri.EscapeDataString(date.ToString("ddd MMM dd yyyy"));
             var searchUrl  = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes" +
                              $"?searchDate={searchDate}" +
@@ -189,14 +150,17 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                              $"&teeOffTimeMin=0&teeOffTimeMax=23" +
                              $"&isChangeTeeOffTime=true" +
                              $"&teeSheetSearchView=5" +
-                             $"&classCode=RS" +
+                             $"&classCode={_classCode}" +
                              $"&defaultOnlineRate=N" +
                              $"&isUseCapacityPricing=false" +
-                             $"&memberStoreId=1" +
+                             $"&memberStoreId={_memberStoreId}" +
                              $"&searchType=1";
 
-            var teeTimes = await CallApiAsync<JsonElement>("GET", searchUrl, ct: ct);
-            _logger.LogInformation("CPS Golf: TeeTimes response kind={Kind}", teeTimes.ValueKind);
+            var (rawBody, teeTimes) = await CallApiRawAsync<JsonElement>(
+                "GET", searchUrl, useShortToken: true, ct: ct);
+
+            _logger.LogInformation("CPS Golf: TeeTimes raw response (first 800 chars): {Body}",
+                rawBody.Length > 800 ? rawBody[..800] : rawBody);
 
             var teeTimesArray = teeTimes.ValueKind == JsonValueKind.Array
                 ? teeTimes
@@ -206,32 +170,41 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             if (teeTimesArray.ValueKind != JsonValueKind.Array)
             {
-                _logger.LogWarning("CPS Golf: Unexpected TeeTimes response format. Full response: {Body}",
-                    teeTimes.ToString()[..Math.Min(500, teeTimes.ToString().Length)]);
+                _logger.LogWarning("CPS Golf: TeeTimes response was not an array. Kind={Kind}", teeTimes.ValueKind);
                 return slots;
             }
 
+            int total = 0;
             foreach (var tt in teeTimesArray.EnumerateArray())
             {
+                total++;
                 try
                 {
+                    // CPS Golf uses "startTime" for the tee time datetime
                     string? timeStr = GetStringProp(tt,
-                        "teeOffDateTime", "TeeOffDateTime", "teeOffTime", "TeeOffTime",
-                        "startTime", "StartTime");
+                        "startTime", "StartTime",
+                        "teeOffDateTime", "TeeOffDateTime",
+                        "teeOffTime", "TeeOffTime");
 
                     if (!DateTime.TryParse(timeStr, out var slotDt)) continue;
 
                     if (!IsWithinWindow(slotDt.TimeOfDay, preferredTime, windowMinutes)) continue;
 
+                    // CPS Golf uses "participants" for available slots
                     int available = GetIntProp(tt,
-                        "availableSlots", "AvailableSlots", "openSlots", "OpenSlots",
-                        "availablePlayers", "maxGuest", "MaxGuest") ?? 4;
+                        "participants", "Participants",
+                        "availableSlots", "AvailableSlots",
+                        "openSlots", "OpenSlots",
+                        "maxGuest", "MaxGuest") ?? 4;
 
                     if (available < players) continue;
 
-                    string slotId = GetStringProp(tt,
-                        "teeTimeId", "TeeTimeId", "scheduleId", "ScheduleId", "id", "Id")
-                        ?? slotDt.ToString("HHmm");
+                    // CPS Golf uses "teeSheetId" as the booking identifier
+                    var teeSheetId = GetIntProp(tt, "teeSheetId", "TeeSheetId");
+                    string slotId  = teeSheetId.HasValue
+                        ? teeSheetId.Value.ToString()
+                        : GetStringProp(tt, "teeTimeId", "TeeTimeId", "id", "Id")
+                          ?? slotDt.ToString("HHmm");
 
                     slots.Add(new TeeTimeSlot
                     {
@@ -247,7 +220,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 }
             }
 
-            _logger.LogInformation("CPS Golf: Found {Count} matching slots", slots.Count);
+            _logger.LogInformation("CPS Golf: Parsed {Total} total slots, {Match} within window", total, slots.Count);
         }
         catch (Exception ex)
         {
@@ -256,9 +229,9 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         return slots;
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
     // Book
-    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
 
     public async Task<BookingAdapterResult> BookSlotAsync(TeeTimeSlot slot, int players,
         CancellationToken ct = default)
@@ -266,67 +239,128 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         var result = new BookingAdapterResult();
         try
         {
-            var txResponse = await CallApiAsync<JsonElement>(
-                "POST",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
-                ct: ct);
-
-            string transactionId = Guid.NewGuid().ToString();
-            if (txResponse.ValueKind == JsonValueKind.Object &&
-                txResponse.TryGetProperty("transactionId", out var tx) && tx.ValueKind == JsonValueKind.String)
-                transactionId = tx.GetString() ?? transactionId;
-
-            var bookingPayload = new
+            if (!int.TryParse(slot.SlotId, out var teeSheetId))
             {
-                teeTimeId      = slot.SlotId,
-                courseId       = _courseId,
-                numberOfPlayer = players,
+                result.ErrorMessage = $"Invalid teeSheetId '{slot.SlotId}' — expected integer";
+                return result;
+            }
+
+            // Step 1: Get a fresh transaction ID (use main token for booking operations)
+            var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+
+            // Step 2: Build booking list — participant 1 is the member, rest are unassigned
+            var bookingList = BuildBookingList(teeSheetId, players, transactionId);
+
+            var pricesPayload = new
+            {
+                selectedTeeSheetId      = teeSheetId,
+                bookingList,
+                holes                   = 18,
+                numberOfPlayer          = players,
+                numberOfRider           = 0,
+                cartType                = 0,
+                coupon                  = (string?)null,
+                depositType             = 0,
+                depositAmount           = 0,
+                selectedValuePackageCode = (string?)null,
+                isUseCapacityPricing    = false,
+                thirdPartyId            = (string?)null,
+                ibxCardOnFile           = (string?)null,
                 transactionId,
-                holes          = 18,
-                classCode      = "RS"
+                isPrepayDeposit         = false
             };
 
-            var bookUrl = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime";
+            // Step 3: TeeTimePricesCalculation (validates price/availability)
+            var (pricesRaw, pricesResp) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePricesCalculation",
+                pricesPayload, useShortToken: false, ct);
 
-            // Call with raw response logging so we can see exactly what CPS Golf returns
-            var (rawBody, response) = await CallApiRawAsync<JsonElement>("POST", bookUrl, bookingPayload, ct);
+            _logger.LogInformation("CPS Golf: TeeTimePricesCalculation → {Body}",
+                pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
+
+            // Step 4: CheckRestrictReservation
+            var restrictPayload = new
+            {
+                teeSheetId,
+                courseId  = _courseId,
+                siteId    = _siteId,
+                classCode = _classCode
+            };
+
+            var (restrictRaw, _) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/CheckRestrictReservation",
+                restrictPayload, useShortToken: false, ct);
+
+            _logger.LogInformation("CPS Golf: CheckRestrictReservation → {Body}",
+                restrictRaw.Length > 200 ? restrictRaw[..200] : restrictRaw);
+
+            // Step 5: Register a second transaction ID (required before SaveTeeTime)
+            var bookingTransactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+
+            // Rebuild booking list with new transactionId for SaveTeeTime
+            var saveBookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
+
+            var savePayload = new
+            {
+                selectedTeeSheetId      = teeSheetId,
+                bookingList             = saveBookingList,
+                holes                   = 18,
+                numberOfPlayer          = players,
+                numberOfRider           = 0,
+                cartType                = 0,
+                coupon                  = (string?)null,
+                depositType             = 0,
+                depositAmount           = 0,
+                selectedValuePackageCode = (string?)null,
+                isUseCapacityPricing    = false,
+                thirdPartyId            = (string?)null,
+                ibxCardOnFile           = (string?)null,
+                transactionId           = bookingTransactionId,
+                isPrepayDeposit         = false
+            };
+
+            // Step 6: SaveTeeTime
+            var (rawBody, response) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime",
+                savePayload, useShortToken: false, ct);
+
             _logger.LogInformation("CPS Golf: SaveTeeTime raw response: {Body}", rawBody);
 
-            // Try every plausible confirmation-number field name CPS Golf might return
+            // Parse confirmation — CPS Golf typically returns teeReservationId or similar
             string? confirmationNumber = GetStringProp(response,
                 "confirmationNumber", "ConfirmationNumber",
                 "confirmationId",     "ConfirmationId",
                 "reservationNumber",  "ReservationNumber",
-                "teeReservationId",   "TeeReservationId",
-                "reservationId",      "ReservationId",
                 "reservationCode",    "ReservationCode",
                 "receiptNumber",      "ReceiptNumber");
 
-            // Also accept a numeric reservation ID as confirmation
             if (string.IsNullOrEmpty(confirmationNumber))
             {
                 var numericId = GetIntProp(response,
                     "teeReservationId", "TeeReservationId",
                     "reservationId",    "ReservationId",
-                    "receiptId",        "ReceiptId");
-                if (numericId.HasValue)
+                    "receiptId",        "ReceiptId",
+                    "id",               "Id");
+                if (numericId.HasValue && numericId.Value > 0)
                     confirmationNumber = numericId.Value.ToString();
             }
 
-            // Only mark as booked when we have a real confirmation identifier.
-            // A bare {"success":true} without an ID means the booking did NOT go through.
             if (!string.IsNullOrEmpty(confirmationNumber))
             {
                 result.Success            = true;
                 result.ConfirmationNumber = confirmationNumber;
                 result.BookedTime         = slot.DateTime;
-                _logger.LogInformation("CPS Golf: Booking confirmed — {Confirmation}", result.ConfirmationNumber);
+                _logger.LogInformation("CPS Golf: Booking confirmed — #{Confirmation}", confirmationNumber);
             }
             else
             {
-                result.ErrorMessage = GetStringProp(response, "message", "Message", "errorMessage", "ErrorMessage")
-                    ?? $"Booking did not return a confirmation ID. Full response: {rawBody[..Math.Min(500, rawBody.Length)]}";
-                _logger.LogWarning("CPS Golf: No confirmation ID in response — {Error}", result.ErrorMessage);
+                result.ErrorMessage = GetStringProp(response,
+                    "message", "Message", "errorMessage", "ErrorMessage", "error", "Error")
+                    ?? $"SaveTeeTime returned no confirmation ID. Response: {rawBody[..Math.Min(600, rawBody.Length)]}";
+                _logger.LogWarning("CPS Golf: No confirmation ID — {Error}", result.ErrorMessage);
             }
         }
         catch (Exception ex)
@@ -339,84 +373,104 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
     public Task LogoutAsync(CancellationToken ct = default) => Task.CompletedTask;
 
-    // ──────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ──────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Like CallApiAsync but also returns the raw response body string for logging/debugging.
+    /// Calls /identityapi/myconnect/token/short with the main Bearer token to obtain
+    /// a short-lived token used for read operations (TeeTimes search, etc.).
     /// </summary>
-    private async Task<(string RawBody, T Parsed)> CallApiRawAsync<T>(
-        string method, string url, object? body = null, CancellationToken ct = default)
+    private async Task TryGetShortLivedTokenAsync(CancellationToken ct)
     {
-        var client  = _httpClientFactory.CreateClient("CpsGolf");
-        var request = new HttpRequestMessage(new HttpMethod(method), url);
-
-        if (!string.IsNullOrEmpty(_bearerToken))
+        try
+        {
+            var client  = _httpClientFactory.CreateClient("CpsGolf");
+            var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_baseUrl}/identityapi/myconnect/token/short");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
+            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
 
-        if (body != null)
-        {
-            var json = JsonSerializer.Serialize(body);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await client.SendAsync(request, ct);
+            var body     = await response.Content.ReadAsStringAsync(ct);
+
+            _logger.LogInformation("CPS Golf: myconnect/token/short → {Status} {Body}",
+                (int)response.StatusCode,
+                body.Length > 200 ? body[..200] : body);
+
+            if (response.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
+            {
+                // Response could be a bare JWT string or {"access_token":"..."}
+                if (body.TrimStart().StartsWith("\"") || body.TrimStart().StartsWith("ey"))
+                {
+                    _shortLivedToken = body.Trim().Trim('"');
+                }
+                else
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    if (doc.RootElement.TryGetProperty("access_token", out var el))
+                        _shortLivedToken = el.GetString();
+                    else if (doc.RootElement.TryGetProperty("token", out var el2))
+                        _shortLivedToken = el2.GetString();
+                }
+
+                if (!string.IsNullOrEmpty(_shortLivedToken))
+                    _logger.LogInformation("CPS Golf: Short-lived token obtained");
+                else
+                    _logger.LogWarning("CPS Golf: Could not parse short-lived token from body");
+            }
+            else
+            {
+                _logger.LogWarning("CPS Golf: Short-lived token request failed — will use main token for search");
+            }
         }
-
-        var response = await client.SendAsync(request, ct);
-        var content  = await response.Content.ReadAsStringAsync(ct);
-
-        _logger.LogInformation("CPS Golf API {Method} {Url} → {Status}", method, url, (int)response.StatusCode);
-
-        if (!response.IsSuccessStatusCode)
+        catch (Exception ex)
         {
-            _logger.LogWarning("CPS Golf API error {Status}: {Body}", (int)response.StatusCode,
-                content.Length > 500 ? content[..500] : content);
-            return (content, default!);
+            _logger.LogWarning(ex, "CPS Golf: TryGetShortLivedTokenAsync failed — will use main token");
         }
-
-        if (string.IsNullOrWhiteSpace(content)) return (content, default!);
-
-        try { return (content, JsonSerializer.Deserialize<T>(content)!); }
-        catch { return (content, default!); }
-    }
-
-    private async Task<T> CallApiAsync<T>(string method, string url, object? body = null,
-        CancellationToken ct = default)
-    {
-        var client  = _httpClientFactory.CreateClient("CpsGolf");
-        var request = new HttpRequestMessage(new HttpMethod(method), url);
-
-        if (!string.IsNullOrEmpty(_bearerToken))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
-
-        if (body != null)
-        {
-            var json = JsonSerializer.Serialize(body);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
-
-        var response = await client.SendAsync(request, ct);
-        var content  = await response.Content.ReadAsStringAsync(ct);
-
-        _logger.LogDebug("CPS Golf API {Method} {Url} → {Status}", method, url, (int)response.StatusCode);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning("CPS Golf API error {Status}: {Body}", (int)response.StatusCode,
-                content.Length > 500 ? content[..500] : content);
-            return default!;
-        }
-
-        if (string.IsNullOrWhiteSpace(content)) return default!;
-
-        try { return JsonSerializer.Deserialize<T>(content)!; }
-        catch { return default!; }
     }
 
     /// <summary>
-    /// Decodes the JWT access token payload and logs all claims.
-    /// Also tries to extract componentId from known claim names.
+    /// Fetches OnlineCourses and picks the 18-hole course, extracting courseId and siteId.
     /// </summary>
-    private void TryExtractComponentIdFromJwt()
+    private async Task FetchCourseInfoAsync(CancellationToken ct)
+    {
+        try
+        {
+            var courses = await CallApiAsync<JsonElement>(
+                "GET",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/OnlineCourses",
+                useShortToken: false, ct: ct);
+
+            if (courses.ValueKind != JsonValueKind.Array) return;
+
+            // Prefer the 18-hole course (isDefaultSelected or holes==18)
+            JsonElement? chosen = null;
+            foreach (var c in courses.EnumerateArray())
+            {
+                var holes = GetIntProp(c, "holes", "Holes") ?? 18;
+                if (holes == 18) { chosen = c; break; }
+            }
+            chosen ??= courses.EnumerateArray().FirstOrDefault();
+
+            if (chosen is not null)
+            {
+                _courseId = GetIntProp(chosen.Value, "courseId", "CourseId") ?? _courseId;
+                _siteId   = GetIntProp(chosen.Value, "siteId",   "SiteId")   ?? _siteId;
+                _logger.LogInformation("CPS Golf: courseId={CourseId} siteId={SiteId}", _courseId, _siteId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CPS Golf: FetchCourseInfoAsync failed — using defaults");
+        }
+    }
+
+    /// <summary>
+    /// Decodes the JWT access token to extract user-specific booking fields.
+    /// </summary>
+    private void ExtractUserClaimsFromJwt()
     {
         if (string.IsNullOrEmpty(_bearerToken)) return;
         try
@@ -424,35 +478,23 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var parts = _bearerToken.Split('.');
             if (parts.Length < 2) return;
 
-            // JWT payload is base64url — pad and convert to standard base64
             var payload = parts[1];
             payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=')
                              .Replace('-', '+').Replace('_', '/');
 
             using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
+            var root = doc.RootElement;
 
-            _logger.LogInformation("CPS Golf: JWT claims = {Claims}", doc.RootElement.ToString());
+            _logger.LogInformation("CPS Golf: JWT claims = {Claims}", root.ToString());
 
-            // Try every plausible componentId claim name
-            foreach (var name in new[] {
-                "componentId", "ComponentId", "compId", "CompId",
-                "comp_id", "component_id", "cid", "compid", "comp"
-            })
-            {
-                if (doc.RootElement.TryGetProperty(name, out var el))
-                {
-                    _componentId = el.ValueKind == JsonValueKind.String ? el.GetString()
-                                 : el.ValueKind == JsonValueKind.Number ? el.GetInt64().ToString()
-                                 : null;
-                    if (!string.IsNullOrEmpty(_componentId))
-                    {
-                        _logger.LogInformation("CPS Golf: componentId from JWT claim '{Name}': {Value}", name, _componentId);
-                        return;
-                    }
-                }
-            }
+            if (int.TryParse(GetStringProp(root, "golferId")  ?? "", out var gi)) _golferId = gi;
+            _acct          = GetStringProp(root, "acct")          ?? _acct;
+            _classCode     = GetStringProp(root, "classCode")     ?? _classCode;
+            _memberStoreId = GetStringProp(root, "store_id")      ?? _memberStoreId;
 
-            _logger.LogWarning("CPS Golf: componentId not found in JWT — will try GetAllOptions");
+            _logger.LogInformation(
+                "CPS Golf: User claims — golferId={GolferId} acct={Acct} classCode={ClassCode} storeId={StoreId}",
+                _golferId, _acct, _classCode, _memberStoreId);
         }
         catch (Exception ex)
         {
@@ -460,11 +502,112 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         }
     }
 
-    private string GetSiteCode()
+    /// <summary>
+    /// Calls RegisterTransactionId and returns the transaction GUID.
+    /// </summary>
+    private async Task<string> RegisterTransactionAsync(bool useShortToken, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(_baseUrl)) return "paramus";
-        var host = new Uri(_baseUrl).Host; // paramus.cps.golf
-        return host.Split('.')[0];         // paramus
+        var fallback = Guid.NewGuid().ToString();
+        try
+        {
+            var (_, resp) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
+                null, useShortToken, ct);
+
+            if (resp.ValueKind == JsonValueKind.Object)
+            {
+                return GetStringProp(resp, "transactionId", "TransactionId") ?? fallback;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CPS Golf: RegisterTransactionId failed — using random GUID");
+        }
+        return fallback;
+    }
+
+    /// <summary>
+    /// Builds the bookingList array for TeeTimePricesCalculation and SaveTeeTime.
+    /// Participant 1 is the authenticated member; additional players are unassigned.
+    /// </summary>
+    private object[] BuildBookingList(int teeSheetId, int players, string transactionId)
+    {
+        var list = new List<object>();
+        for (int i = 1; i <= players; i++)
+        {
+            bool isFirst = i == 1;
+            list.Add(new
+            {
+                teeSheetId,
+                holes               = 18,
+                participantNo       = i,
+                golferId            = _golferId,
+                dependentId         = "0",
+                rateCode            = "RG",
+                isUnAssignedPlayer  = !isFirst,
+                memberClassCode     = _classCode,
+                memberStoreId       = _memberStoreId,
+                cartType            = 0,
+                playerId            = "0",
+                acct                = _acct,
+                isGuestOf           = false,
+                isUseCapacityPricing = false,
+                isSmartCard         = false
+            });
+        }
+        return list.ToArray();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // HTTP helpers
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private async Task<(string RawBody, T Parsed)> CallApiRawAsync<T>(
+        string method, string url,
+        object? body = null, bool useShortToken = false,
+        CancellationToken ct = default)
+    {
+        var client  = _httpClientFactory.CreateClient("CpsGolf");
+        var request = new HttpRequestMessage(new HttpMethod(method), url);
+
+        // Use short-lived token for search calls (bypasses componentid header requirement),
+        // fall back to main token if short-lived token wasn't obtained.
+        var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
+            ? _shortLivedToken
+            : _bearerToken;
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        if (body != null)
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var response = await client.SendAsync(request, ct);
+        var content  = await response.Content.ReadAsStringAsync(ct);
+
+        _logger.LogInformation("CPS Golf API {Method} {Url} → {Status}",
+            method, url, (int)response.StatusCode);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("CPS Golf API error {Status}: {Body}",
+                (int)response.StatusCode,
+                content.Length > 500 ? content[..500] : content);
+            return (content, default!);
+        }
+
+        if (string.IsNullOrWhiteSpace(content)) return (content, default!);
+        try { return (content, JsonSerializer.Deserialize<T>(content)!); }
+        catch { return (content, default!); }
+    }
+
+    private async Task<T> CallApiAsync<T>(string method, string url,
+        object? body = null, bool useShortToken = false,
+        CancellationToken ct = default)
+    {
+        var (_, parsed) = await CallApiRawAsync<T>(method, url, body, useShortToken, ct);
+        return parsed;
     }
 
     private static string? GetStringProp(JsonElement el, params string[] names)
@@ -484,20 +627,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         return null;
     }
 
-    private static bool GetBoolProp(JsonElement el, params string[] names)
-    {
-        foreach (var name in names)
-            if (el.TryGetProperty(name, out var p) &&
-               (p.ValueKind == JsonValueKind.True || p.ValueKind == JsonValueKind.False))
-                return p.GetBoolean();
-        return false;
-    }
-
     private static bool IsWithinWindow(TimeSpan slotTime, TimeSpan preferred, int windowMinutes)
-    {
-        var diff = (slotTime - preferred).Duration();
-        return diff <= TimeSpan.FromMinutes(windowMinutes);
-    }
+        => (slotTime - preferred).Duration() <= TimeSpan.FromMinutes(windowMinutes);
 
     ValueTask IAsyncDisposable.DisposeAsync() => ValueTask.CompletedTask;
 }

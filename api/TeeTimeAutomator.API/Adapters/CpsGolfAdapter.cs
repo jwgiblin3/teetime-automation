@@ -587,9 +587,13 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         var client  = _httpClientFactory.CreateClient("CpsGolf");
         var request = new HttpRequestMessage(new HttpMethod(method), url);
 
-        // Always use main access token — correct x-headers make it work
-        if (!string.IsNullOrEmpty(_bearerToken))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
+        // Use short-lived token for read operations (RegisterTransactionId, TeeTimes search);
+        // fall back to main token when short-lived isn't available or for write operations.
+        var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
+            ? _shortLivedToken
+            : _bearerToken;
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // Required CPS Golf custom headers (discovered from browser DevTools)
         request.Headers.TryAddWithoutValidation("client-id",          "onlineresweb");

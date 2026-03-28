@@ -162,6 +162,13 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             _logger.LogInformation("CPS Golf: TeeTimes raw response (first 800 chars): {Body}",
                 rawBody.Length > 800 ? rawBody[..800] : rawBody);
 
+            if (teeTimes.ValueKind == JsonValueKind.Undefined)
+            {
+                _logger.LogWarning("CPS Golf: TeeTimes response could not be parsed as JSON — raw: {Raw}",
+                    rawBody.Length > 200 ? rawBody[..200] : rawBody);
+                return slots;
+            }
+
             var teeTimesArray = teeTimes.ValueKind == JsonValueKind.Array
                 ? teeTimes
                 : teeTimes.TryGetProperty("teeTimes", out var nested)  ? nested
@@ -390,10 +397,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 HttpMethod.Post,
                 $"{_baseUrl}/identityapi/myconnect/token/short");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _bearerToken);
-            // myconnect/token/short requires client_id in the body
-            request.Content = new StringContent(
-                "{\"client_id\":\"onlinereswebshortlived\"}",
-                Encoding.UTF8, "application/json");
+            // myconnect/token/short is a custom OAuth2-style endpoint — use form encoding
+            request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = "onlinereswebshortlived"
+            });
 
             var response = await client.SendAsync(request, ct);
             var body     = await response.Content.ReadAsStringAsync(ct);

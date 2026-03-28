@@ -80,16 +80,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 _logger.LogWarning("CPS Golf: {Error}", _lastLoginError);
                 return false;
             }
-            await _page.FillAsync("input[type='email']", email);
+            // Use Type (not Fill) so Angular's change detection fires on each keystroke
+            await _page.TypeAsync("input[type='email']", email, new PageTypeOptions { Delay = 50 });
 
-            // Click the "NEXT" form button (mat-accent), not the header Sign In button
-            try
-            {
-                await _page.WaitForSelectorAsync("button.mat-accent:not([disabled])",
-                    new PageWaitForSelectorOptions { Timeout = 5000 });
-            }
-            catch (TimeoutException) { /* button may already be enabled */ }
-            await _page.ClickAsync("button.mat-accent");
+            // Press Enter to submit — more reliable than clicking a button that starts disabled
+            await _page.PressAsync("input[type='email']", "Enter");
 
             // Wait for navigation to /auth/login
             try
@@ -120,10 +115,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return false;
             }
 
-            await _page.FillAsync("input[type='password']", password);
+            await _page.TypeAsync("input[type='password']", password, new PageTypeOptions { Delay = 50 });
 
-            // Click the "SIGN IN" form button (mat-accent), not the header Sign In button
-            await _page.ClickAsync("button.mat-accent");
+            // Press Enter to submit the login form
+            await _page.PressAsync("input[type='password']", "Enter");
 
             try
             {

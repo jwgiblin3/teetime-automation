@@ -159,7 +159,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                              $"&searchType=1";
 
             var (rawBody, teeTimes) = await CallApiRawAsync<JsonElement>(
-                "GET", searchUrl, useShortToken: true, ct: ct);
+                "GET", searchUrl,
+                useShortToken: true,
+                extraHeaders: new Dictionary<string, string> { ["x-correlation-id"] = transactionId },
+                ct: ct);
 
             _logger.LogInformation("CPS Golf: TeeTimes raw response (first 800 chars): {Body}",
                 rawBody.Length > 800 ? rawBody[..800] : rawBody);
@@ -284,7 +287,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var (pricesRaw, pricesResp) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePricesCalculation",
-                pricesPayload, useShortToken: false, ct);
+                pricesPayload, useShortToken: false, null, ct);
 
             _logger.LogInformation("CPS Golf: TeeTimePricesCalculation → {Body}",
                 pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
@@ -301,7 +304,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var (restrictRaw, _) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/CheckRestrictReservation",
-                restrictPayload, useShortToken: false, ct);
+                restrictPayload, useShortToken: false, null, ct);
 
             _logger.LogInformation("CPS Golf: CheckRestrictReservation → {Body}",
                 restrictRaw.Length > 200 ? restrictRaw[..200] : restrictRaw);
@@ -335,7 +338,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var (rawBody, response) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime",
-                savePayload, useShortToken: false, ct);
+                savePayload, useShortToken: false, null, ct);
 
             _logger.LogInformation("CPS Golf: SaveTeeTime raw response: {Body}", rawBody);
 
@@ -637,6 +640,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     private async Task<(string RawBody, T Parsed)> CallApiRawAsync<T>(
         string method, string url,
         object? body = null, bool useShortToken = false,
+        Dictionary<string, string>? extraHeaders = null,
         CancellationToken ct = default)
     {
         var client  = _httpClientFactory.CreateClient("CpsGolf");
@@ -662,6 +666,11 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         request.Headers.TryAddWithoutValidation("x-requestid",        Guid.NewGuid().ToString());
         request.Headers.TryAddWithoutValidation("x-timezone-offset",  "240");
         request.Headers.TryAddWithoutValidation("x-timezoneid",       "America/New_York");
+
+        // Caller-supplied extra headers (e.g. x-correlation-id for TeeTimes)
+        if (extraHeaders != null)
+            foreach (var kv in extraHeaders)
+                request.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
 
         // Always send application/json — server returns 415 if Content-Type is absent on POST
         var bodyJson = body != null ? JsonSerializer.Serialize(body) : "{}";
@@ -689,9 +698,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
     private async Task<T> CallApiAsync<T>(string method, string url,
         object? body = null, bool useShortToken = false,
+        Dictionary<string, string>? extraHeaders = null,
         CancellationToken ct = default)
     {
-        var (_, parsed) = await CallApiRawAsync<T>(method, url, body, useShortToken, ct);
+        var (_, parsed) = await CallApiRawAsync<T>(method, url, body, useShortToken, extraHeaders, ct);
         return parsed;
     }
 

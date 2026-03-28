@@ -207,14 +207,9 @@ public class BookTeeTimeJob
                     _logger.LogWarning("Booking failed for request {BookingRequestId}: {ErrorMessage}",
                         bookingRequestId, bookingResult.ErrorMessage);
 
-                    bookingRequest.Status = BookingStatus.Scheduled;
+                    bookingRequest.Status = BookingStatus.Failed;
                     bookingRequest.ErrorMessage = bookingResult.ErrorMessage ?? "Booking attempt failed";
                     await _dbContext.SaveChangesAsync();
-
-                    RecurringJob.AddOrUpdate<PollingJob>(
-                        $"polling-{bookingRequestId}",
-                        job => job.ExecuteAsync(bookingRequestId),
-                        Cron.MinuteInterval(5));
                 }
             }
             else

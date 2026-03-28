@@ -92,18 +92,34 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             _logger.LogInformation("CPS Golf: OAuth token obtained successfully");
 
-            // Fetch site options to get componentId
-            var options = await CallApiAsync<JsonElement>(
-                "GET",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/GetAllOptions/{GetSiteCode()}",
-                ct: ct);
+            // Step 1: Try to extract componentId from the JWT token claims
+            TryExtractComponentIdFromJwt();
 
-            if (options.ValueKind == JsonValueKind.Object)
+            // Step 2: If not in JWT, try GetAllOptions (it returns componentId for some sites)
+            if (string.IsNullOrEmpty(_componentId))
             {
-                if (options.TryGetProperty("componentId", out var cid))
-                    _componentId = cid.GetString();
-                else if (options.TryGetProperty("ComponentId", out var cidU))
-                    _componentId = cidU.GetString();
+                var (rawOptions, options) = await CallApiRawAsync<JsonElement>(
+                    "GET",
+                    $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/GetAllOptions/{GetSiteCode()}",
+                    ct: ct);
+
+                _logger.LogInformation("CPS Golf: GetAllOptions response: {Body}",
+                    rawOptions.Length > 1000 ? rawOptions[..1000] : rawOptions);
+
+                if (options.ValueKind == JsonValueKind.Object)
+                {
+                    // Try every plausible field name
+                    foreach (var name in new[] { "componentId", "ComponentId", "compId", "CompId", "comp_id" })
+                    {
+                        if (options.TryGetProperty(name, out var cid))
+                        {
+                            _componentId = cid.ValueKind == JsonValueKind.String ? cid.GetString()
+                                         : cid.ValueKind == JsonValueKind.Number ? cid.GetInt64().ToString()
+                                         : null;
+                            if (!string.IsNullOrEmpty(_componentId)) break;
+                        }
+                    }
+                }
             }
 
             // Fetch courseId from online courses list
@@ -152,11 +168,14 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
                 ct: ct);
 
-            string transactionId = txResponse.TryGetProperty("transactionId", out var tx)
-                ? tx.GetString() ?? Guid.NewGuid().ToString()
-                : txResponse.TryGetProperty("TransactionId", out var txU)
-                    ? txU.GetString() ?? Guid.NewGuid().ToString()
-                    : Guid.NewGuid().ToString();
+            string transactionId = Guid.NewGuid().ToString();
+            if (txResponse.ValueKind == JsonValueKind.Object)
+            {
+                if (txResponse.TryGetProperty("transactionId", out var tx) && tx.ValueKind == JsonValueKind.String)
+                    transactionId = tx.GetString() ?? transactionId;
+                else if (txResponse.TryGetProperty("TransactionId", out var txU) && txU.ValueKind == JsonValueKind.String)
+                    transactionId = txU.GetString() ?? transactionId;
+            }
 
             // Format date the way CPS Golf expects: "Sat Mar 28 2026"
             var searchDate = Uri.EscapeDataString(date.ToString("ddd MMM dd yyyy"));
@@ -252,9 +271,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
                 ct: ct);
 
-            string transactionId = txResponse.TryGetProperty("transactionId", out var tx)
-                ? tx.GetString() ?? Guid.NewGuid().ToString()
-                : Guid.NewGuid().ToString();
+            string transactionId = Guid.NewGuid().ToString();
+            if (txResponse.ValueKind == JsonValueKind.Object &&
+                txResponse.TryGetProperty("transactionId", out var tx) && tx.ValueKind == JsonValueKind.String)
+                transactionId = tx.GetString() ?? transactionId;
 
             var bookingPayload = new
             {
@@ -396,6 +416,54 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
         try { return JsonSerializer.Deserialize<T>(content)!; }
         catch { return default!; }
+    }
+
+    /// <summary>
+    /// Decodes the JWT access token payload and logs all claims.
+    /// Also tries to extract componentId from known claim names.
+    /// </summary>
+    private void TryExtractComponentIdFromJwt()
+    {
+        if (string.IsNullOrEmpty(_bearerToken)) return;
+        try
+        {
+            var parts = _bearerToken.Split('.');
+            if (parts.Length < 2) return;
+
+            // JWT payload is base64url — pad and convert to standard base64
+            var payload = parts[1];
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=')
+                             .Replace('-', '+').Replace('_', '/');
+
+            using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
+
+            _logger.LogInformation("CPS Golf: JWT claims = {Claims}", doc.RootElement.ToString());
+
+            // Try every plausible componentId claim name
+            foreach (var name in new[] {
+                "componentId", "ComponentId", "compId", "CompId",
+                "comp_id", "component_id", "cid", "compid", "comp"
+            })
+            {
+                if (doc.RootElement.TryGetProperty(name, out var el))
+                {
+                    _componentId = el.ValueKind == JsonValueKind.String ? el.GetString()
+                                 : el.ValueKind == JsonValueKind.Number ? el.GetInt64().ToString()
+                                 : null;
+                    if (!string.IsNullOrEmpty(_componentId))
+                    {
+                        _logger.LogInformation("CPS Golf: componentId from JWT claim '{Name}': {Value}", name, _componentId);
+                        return;
+                    }
+                }
+            }
+
+            _logger.LogWarning("CPS Golf: componentId not found in JWT — will try GetAllOptions");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CPS Golf: JWT decode failed");
+        }
     }
 
     private string GetSiteCode()

@@ -44,6 +44,13 @@ public interface IBookingService
     Task<BookingRequestDto> CancelBookingRequestAsync(int requestId);
 
     /// <summary>
+    /// Resets a failed or stuck booking back to Pending so it can be re-queued.
+    /// </summary>
+    /// <param name="requestId">The booking request ID.</param>
+    /// <returns>The updated booking request DTO.</returns>
+    Task<BookingRequestDto> ResetBookingForRetryAsync(int requestId);
+
+    /// <summary>
     /// Processes a booking request (called by Hangfire job).
     /// </summary>
     /// <param name="requestId">The booking request ID.</param>

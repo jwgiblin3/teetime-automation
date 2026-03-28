@@ -107,6 +107,38 @@ public class BookingsController : ControllerBase
     }
 
     /// <summary>
+    /// Retry a failed or stuck booking — resets status and re-queues the booking job.
+    /// </summary>
+    [HttpPost("{id}/retry")]
+    public async Task<ActionResult<BookingRequestDto>> RetryBooking(int id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return Unauthorized();
+
+            var booking = await _bookingService.GetBookingRequestAsync(id);
+            if (booking == null) return NotFound(new { message = "Booking not found" });
+            if (booking.UserId != userId) return Forbid();
+
+            // Reset to pending and re-schedule
+            var updated = await _bookingService.ResetBookingForRetryAsync(id);
+
+            // Remove any existing polling job then enqueue a fresh ScheduleBookingJob
+            RecurringJob.RemoveIfExists($"polling-{id}");
+            BackgroundJob.Enqueue<ScheduleBookingJob>(job => job.ExecuteAsync(id));
+
+            _logger.LogInformation("RetryBooking: Re-queued booking {BookingId} for user {UserId}", id, userId);
+            return Ok(updated);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RetryBooking: Error retrying booking {BookingId}", id);
+            return StatusCode(500, new { message = "An error occurred while retrying the booking" });
+        }
+    }
+
+    /// <summary>
     /// Cancel a booking request (POST variant used by the Angular frontend)
     /// </summary>
     [HttpPost("{id}/cancel")]

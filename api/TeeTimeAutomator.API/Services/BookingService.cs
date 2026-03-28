@@ -176,6 +176,36 @@ public class BookingService : IBookingService
     }
 
     /// <summary>
+    /// Resets a failed or stuck booking to Pending so it can be re-queued by the controller.
+    /// </summary>
+    public async Task<BookingRequestDto> ResetBookingForRetryAsync(int requestId)
+    {
+        try
+        {
+            var bookingRequest = await _context.BookingRequests
+                .Include(br => br.Course)
+                .FirstOrDefaultAsync(br => br.RequestId == requestId);
+
+            if (bookingRequest == null)
+                throw new InvalidOperationException("Booking request not found");
+
+            bookingRequest.Status        = BookingStatus.Pending;
+            bookingRequest.ErrorMessage  = null;
+            bookingRequest.HangfireJobId = null;
+            bookingRequest.UpdatedAt     = DateTime.UtcNow;
+            _context.BookingRequests.Update(bookingRequest);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Booking request {RequestId} reset for retry", requestId);
+            return MapBookingRequestToDto(bookingRequest);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting booking request {RequestId} for retry", requestId);
+            throw;
+        }
+    }
+
     /// Cancels a booking request.
     /// </summary>
     public async Task<BookingRequestDto> CancelBookingRequestAsync(int requestId)

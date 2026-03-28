@@ -521,21 +521,75 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
     /// <summary>
     /// Calls RegisterTransactionId and returns the transaction GUID.
+    /// CPS Golf returns the ID in the x-correlation-id response header.
+    /// Falls back to JSON body parsing, then a random GUID.
     /// </summary>
     private async Task<string> RegisterTransactionAsync(bool useShortToken, CancellationToken ct)
     {
         var fallback = Guid.NewGuid().ToString();
         try
         {
-            var (_, resp) = await CallApiRawAsync<JsonElement>(
-                "POST",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
-                null, useShortToken, ct);
+            var client  = _httpClientFactory.CreateClient("CpsGolf");
+            var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId");
 
-            if (resp.ValueKind == JsonValueKind.Object)
+            var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
+                ? _shortLivedToken
+                : _bearerToken;
+            if (!string.IsNullOrEmpty(token))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            request.Headers.TryAddWithoutValidation("client-id",         "onlineresweb");
+            request.Headers.TryAddWithoutValidation("x-componentid",     _componentId);
+            request.Headers.TryAddWithoutValidation("x-siteid",          _siteId.ToString());
+            request.Headers.TryAddWithoutValidation("x-websiteid",       _websiteId);
+            request.Headers.TryAddWithoutValidation("x-moduleid",        "7");
+            request.Headers.TryAddWithoutValidation("x-productid",       "1");
+            request.Headers.TryAddWithoutValidation("x-terminalid",      "3");
+            request.Headers.TryAddWithoutValidation("x-ismobile",        "false");
+            request.Headers.TryAddWithoutValidation("x-requestid",       Guid.NewGuid().ToString());
+            request.Headers.TryAddWithoutValidation("x-timezone-offset", "240");
+            request.Headers.TryAddWithoutValidation("x-timezoneid",      "America/New_York");
+            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+
+            var response = await client.SendAsync(request, ct);
+            var body     = await response.Content.ReadAsStringAsync(ct);
+
+            _logger.LogInformation("CPS Golf: RegisterTransactionId → {Status}", (int)response.StatusCode);
+
+            if (!response.IsSuccessStatusCode)
             {
-                return GetStringProp(resp, "transactionId", "TransactionId") ?? fallback;
+                _logger.LogWarning("CPS Golf: RegisterTransactionId error {Status}: {Body}",
+                    (int)response.StatusCode,
+                    body.Length > 300 ? body[..300] : body);
+                return fallback;
             }
+
+            // Primary: read from x-correlation-id response header
+            if (response.Headers.TryGetValues("x-correlation-id", out var vals))
+            {
+                var id = vals.FirstOrDefault();
+                if (!string.IsNullOrEmpty(id))
+                {
+                    _logger.LogInformation("CPS Golf: TransactionId from x-correlation-id = {Id}", id);
+                    return id;
+                }
+            }
+
+            // Fallback: parse JSON body
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                var id = GetStringProp(doc.RootElement, "transactionId", "TransactionId");
+                if (!string.IsNullOrEmpty(id))
+                {
+                    _logger.LogInformation("CPS Golf: TransactionId from body = {Id}", id);
+                    return id;
+                }
+            }
+
+            _logger.LogWarning("CPS Golf: RegisterTransactionId — no ID found, using random GUID. Body: {Body}", body);
         }
         catch (Exception ex)
         {

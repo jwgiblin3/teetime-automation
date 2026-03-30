@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Npgsql;
 using Serilog;
 using TeeTimeAutomator.API.Adapters;
 using TeeTimeAutomator.API.Data;
@@ -24,9 +25,22 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
+// Build a resilient connection string: TCP keepalive prevents idle connections from
+// being forcibly dropped by the server (fixes Hangfire SocketException 10054).
+var rawConnStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
+var connBuilder = new NpgsqlConnectionStringBuilder(rawConnStr)
+{
+    TcpKeepAlive           = true,
+    TcpKeepAliveTime       = 30,   // send TCP keepalive after 30 s idle
+    TcpKeepAliveInterval   = 5,    // retry every 5 s
+    CommandTimeout         = 60,
+    ConnectionIdleLifetime = 300,  // recycle connections idle > 5 min
+};
+var resilientConnStr = connBuilder.ConnectionString;
+
 // Add services
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(resilientConnStr));
 
 // Configure Hangfire
 builder.Services.AddHangfire(configuration =>
@@ -35,7 +49,13 @@ builder.Services.AddHangfire(configuration =>
         .UseSimpleAssemblyNameTypeSerializer()
         .UseRecommendedSerializerSettings()
         .UsePostgreSqlStorage(c =>
-            c.UseNpgsqlConnection(builder.Configuration.GetConnectionString("DefaultConnection"))));
+            c.UseNpgsqlConnection(resilientConnStr),
+            new PostgreSqlStorageOptions
+            {
+                DistributedLockTimeout = TimeSpan.FromSeconds(30),
+                InvisibilityTimeout    = TimeSpan.FromMinutes(30),
+                QueuePollInterval      = TimeSpan.FromSeconds(15),
+            }));
 
 builder.Services.AddHangfireServer();
 

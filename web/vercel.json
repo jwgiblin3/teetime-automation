@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build -- --output-path=dist",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist/teetime-automator-web/browser",
   "framework": "angular",
   "rewrites": [

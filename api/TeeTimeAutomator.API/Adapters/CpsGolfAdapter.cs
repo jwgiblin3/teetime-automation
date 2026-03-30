@@ -30,13 +30,15 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     private string  _memberStoreId = "1";
     private int     _golferId    = 0;
     private string  _acct        = "0";
+    private string? _email;
+    private readonly Dictionary<string, string> _cookies = new(StringComparer.OrdinalIgnoreCase);
     private string? _lastLoginError;
 
     // CPS Golf OIDC client credentials (public — from /onlineresweb/assets/env.js)
     private const string OidcClientId     = "js1";
     private const string OidcClientSecret = "v4secret";
 
-    // Full scope required for booking (includes sale/inventory for SaveTeeTime)
+    // Full scope required for booking (includes sale/inventory for ReserveTeeTimes)
     private const string OidcScope =
         "openid profile onlinereservation sale inventory sh customer email recommend references";
 
@@ -56,6 +58,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         CancellationToken ct = default)
     {
         _lastLoginError = null;
+        _email = email;
         try
         {
             var uri  = new Uri(url.StartsWith("http") ? url : "https://" + url);
@@ -80,6 +83,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             var responseBody  = await tokenResponse.Content.ReadAsStringAsync(ct);
 
             _logger.LogInformation("CPS Golf: Token endpoint → {Status}", tokenResponse.StatusCode);
+
+            // Capture all cookies from login response (earliest opportunity)
+            CaptureCookies(tokenResponse.Headers
+                .TryGetValues("Set-Cookie", out var loginCookies) ? loginCookies : []);
 
             if (!tokenResponse.IsSuccessStatusCode)
             {
@@ -140,8 +147,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             // Register transaction (use short-lived token)
             var transactionId = await RegisterTransactionAsync(useShortToken: true, ct);
 
-            // Format date: "Sat Mar 28 2026"
-            var searchDate = Uri.EscapeDataString(date.ToString("ddd MMM dd yyyy"));
+            // ISO date format (yyyy-MM-dd) — avoids encoding/space issues with "Sat Mar 28 2026" style
+            var searchDate = date.ToString("yyyy-MM-dd");
             var searchUrl  = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes" +
                              $"?searchDate={searchDate}" +
                              $"&holes=18" +
@@ -174,10 +181,20 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 throw new InvalidOperationException($"TeeTimes search failed: {errMsg}");
             }
 
+            if (teeTimes.TryGetProperty("isSuccess", out var isSuccessEl) &&
+                isSuccessEl.ValueKind == JsonValueKind.False)
+            {
+                var errMsg = GetStringProp(teeTimes, "message", "Message", "errorMessage", "ErrorMessage")
+                             ?? rawBody[..Math.Min(300, rawBody.Length)];
+                _logger.LogWarning("CPS Golf: TeeTimes isSuccess=false — {Error}", errMsg);
+                throw new InvalidOperationException($"TeeTimes search failed: {errMsg}");
+            }
+
             var teeTimesArray = teeTimes.ValueKind == JsonValueKind.Array
                 ? teeTimes
-                : teeTimes.TryGetProperty("teeTimes", out var nested)  ? nested
-                : teeTimes.TryGetProperty("TeeTimes", out var nestedU) ? nestedU
+                : teeTimes.TryGetProperty("content",   out var content)  ? content
+                : teeTimes.TryGetProperty("teeTimes",  out var nested)   ? nested
+                : teeTimes.TryGetProperty("TeeTimes",  out var nestedU)  ? nestedU
                 : default;
 
             if (teeTimesArray.ValueKind != JsonValueKind.Array)
@@ -258,91 +275,85 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return result;
             }
 
-            // Step 1: Get a fresh transaction ID (use main token for booking operations)
-            var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+            // Step 1: TeeTimePrices → server returns bookingTransactionId (anchors the session)
+            var (pricesRaw, bookingTransactionId) = await GetTeeTimePricesTransactionIdAsync(teeSheetId, players, ct);
 
-            // Step 2: Build booking list — participant 1 is the member, rest are unassigned
-            var bookingList = BuildBookingList(teeSheetId, players, transactionId);
-
-            var pricesPayload = new
-            {
-                selectedTeeSheetId      = teeSheetId,
-                bookingList,
-                holes                   = 18,
-                numberOfPlayer          = players,
-                numberOfRider           = 0,
-                cartType                = 0,
-                coupon                  = (string?)null,
-                depositType             = 0,
-                depositAmount           = 0,
-                selectedValuePackageCode = (string?)null,
-                isUseCapacityPricing    = false,
-                thirdPartyId            = (string?)null,
-                ibxCardOnFile           = (string?)null,
-                transactionId,
-                isPrepayDeposit         = false
-            };
-
-            // Step 3: TeeTimePricesCalculation (validates price/availability)
-            var (pricesRaw, pricesResp) = await CallApiRawAsync<JsonElement>(
-                "POST",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePricesCalculation",
-                pricesPayload, useShortToken: false, null, ct);
-
-            _logger.LogInformation("CPS Golf: TeeTimePricesCalculation → {Body}",
+            _logger.LogInformation("CPS Golf: TeeTimePrices → bookingTransactionId={Id} | Body={Body}",
+                bookingTransactionId,
                 pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
 
-            // Step 4: CheckRestrictReservation
-            var restrictPayload = new
-            {
-                teeSheetId,
-                courseId  = _courseId,
-                siteId    = _siteId,
-                classCode = _classCode
-            };
+            // Step 2: Build booking list
+            var bookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
 
+            // Step 3: CheckRestrictReservation
             var (restrictRaw, _) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/CheckRestrictReservation",
-                restrictPayload, useShortToken: false, null, ct);
+                new { teeSheetId, courseId = _courseId, siteId = _siteId, classCode = _classCode },
+                useShortToken: false, null, ct);
 
             _logger.LogInformation("CPS Golf: CheckRestrictReservation → {Body}",
                 restrictRaw.Length > 200 ? restrictRaw[..200] : restrictRaw);
 
-            // Step 5: Register a second transaction ID (required before SaveTeeTime)
-            var bookingTransactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+            // Step 4: Register a fresh transactionId — must be the last RegisterTransactionId call
+            //         before ReserveTeeTimes (server validates this is the "active" transaction).
+            //         Do NOT re-register bookingTransactionId — that would invalidate it.
+            var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
 
-            // Rebuild booking list with new transactionId for SaveTeeTime
-            var saveBookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
+            _logger.LogInformation(
+                "CPS Golf: Ready to reserve — transactionId={TxId}  bookingTransactionId={BookingTxId}",
+                transactionId, bookingTransactionId);
 
-            var savePayload = new
+            // Step 5: ReserveTeeTimes
+            // lockedTeeTimesSessionId — origin still under investigation, using generated GUID.
+            var lockedTeeTimesSessionId = Guid.NewGuid().ToString();
+            var checkoutReferer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
+
+            var reservePayload = new
             {
-                selectedTeeSheetId      = teeSheetId,
-                bookingList             = saveBookingList,
-                holes                   = 18,
-                numberOfPlayer          = players,
-                numberOfRider           = 0,
-                cartType                = 0,
-                coupon                  = (string?)null,
-                depositType             = 0,
-                depositAmount           = 0,
-                selectedValuePackageCode = (string?)null,
-                isUseCapacityPricing    = false,
-                thirdPartyId            = (string?)null,
-                ibxCardOnFile           = (string?)null,
-                transactionId           = bookingTransactionId,
-                isPrepayDeposit         = false
+                cancelReservationLink = $"{_baseUrl}/onlineresweb/auth/verify-email?returnUrl=cancel-booking",
+                homePageLink          = $"{_baseUrl}/onlineresweb/",
+                affiliateId           = (string?)null,
+                finalizeSaleModel     = new
+                {
+                    acct     = _acct,
+                    playerId = 0,
+                    isGuest  = false,
+                    creditCardInfo = new
+                    {
+                        cardNumber  = (string?)null,
+                        cardHolder  = (string?)null,
+                        expireMM    = (string?)null,
+                        expireYY    = (string?)null,
+                        cvv         = (string?)null,
+                        email       = _email,
+                        cardToken   = (string?)null
+                    },
+                    monerisCC = (string?)null,
+                    ibxCC     = (string?)null
+                },
+                sessionGuid             = (string?)null,
+                lockedTeeTimesSessionId,
+                bookingTransactionId,
+                transactionId
             };
 
-            // Step 6: SaveTeeTime
             var (rawBody, response) = await CallApiRawAsync<JsonElement>(
                 "POST",
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/SaveTeeTime",
-                savePayload, useShortToken: false, null, ct);
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/ReserveTeeTimes",
+                reservePayload, useShortToken: false,
+                extraHeaders: new Dictionary<string, string> { ["Referer"] = checkoutReferer },
+                ct);
 
-            _logger.LogInformation("CPS Golf: SaveTeeTime raw response: {Body}", rawBody);
+            _logger.LogInformation("CPS Golf: ReserveTeeTimes raw response: {Body}", rawBody);
 
-            // Parse confirmation — CPS Golf typically returns teeReservationId or similar
+            if (response.ValueKind == JsonValueKind.Undefined)
+            {
+                result.ErrorMessage = rawBody.Trim('"');
+                return result;
+            }
+
+            // Parse confirmation
             string? confirmationNumber = GetStringProp(response,
                 "confirmationNumber", "ConfirmationNumber",
                 "confirmationId",     "ConfirmationId",
@@ -523,99 +534,92 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     }
 
     /// <summary>
+    /// Calls TeeTimePrices with transactionId=null so the server generates and returns one.
+    /// Returns the raw response body and the server-issued transactionId.
+    /// </summary>
+    private async Task<(string RawBody, string TransactionId)> GetTeeTimePricesTransactionIdAsync(
+        int teeSheetId, int players, CancellationToken ct)
+    {
+        // Only the booking member is in the list for the prices call (participantNo driven by teeSheetId slot)
+        var bookingList = BuildBookingList(teeSheetId, players, transactionId: null);
+
+        var payload = new
+        {
+            selectedTeeSheetId       = teeSheetId,
+            bookingList,
+            holes                    = 18,
+            numberOfPlayer           = players,
+            numberOfRider            = 0,
+            cartType                 = 0,
+            coupon                   = (string?)null,
+            depositType              = 0,
+            depositAmount            = 0,
+            selectedValuePackageCode = (string?)null,
+            isUseCapacityPricing     = false,
+            thirdPartyId             = (string?)null,
+            ibxCardOnFile            = (string?)null,
+            advancedBookingFee       = (string?)null,
+            transactionId            = (string?)null,
+            isPrepayDeposit          = false
+        };
+
+        var referer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
+        var (rawBody, response) = await CallApiRawAsync<JsonElement>(
+            "POST",
+            $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePrices",
+            payload, useShortToken: false,
+            extraHeaders: new Dictionary<string, string> { ["Referer"] = referer },
+            ct);
+
+        string? transactionId = null;
+        if (response.ValueKind != JsonValueKind.Undefined)
+            transactionId = GetStringProp(response, "transactionId", "TransactionId");
+
+        if (string.IsNullOrEmpty(transactionId))
+        {
+            _logger.LogWarning("CPS Golf: TeeTimePrices did not return a transactionId (status may be non-2xx) — falling back to RegisterTransactionId");
+            transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+        }
+
+        return (rawBody, transactionId);
+    }
+
+    /// <summary>
     /// Calls RegisterTransactionId and returns the transaction GUID.
     /// CPS Golf returns the ID in the x-correlation-id response header.
     /// Falls back to JSON body parsing, then a random GUID.
     /// </summary>
-    private async Task<string> RegisterTransactionAsync(bool useShortToken, CancellationToken ct)
+    private async Task<string> RegisterTransactionAsync(bool useShortToken, CancellationToken ct,
+        string? existingId = null)
     {
-        var fallback = Guid.NewGuid().ToString();
+        // If an existing ID is supplied (e.g. the one returned by TeeTimePrices) we register that;
+        // otherwise we generate a fresh GUID for the server to register.
+        var transactionId = existingId ?? Guid.NewGuid().ToString();
         try
         {
-            var client  = _httpClientFactory.CreateClient("CpsGolf");
-            var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId");
+            var (body, _) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/RegisterTransactionId",
+                new { transactionId },
+                useShortToken, null, ct);
 
-            var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
-                ? _shortLivedToken
-                : _bearerToken;
-            if (!string.IsNullOrEmpty(token))
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-            request.Headers.TryAddWithoutValidation("client-id",         "onlineresweb");
-            request.Headers.TryAddWithoutValidation("x-componentid",     _componentId);
-            request.Headers.TryAddWithoutValidation("x-siteid",          _siteId.ToString());
-            request.Headers.TryAddWithoutValidation("x-websiteid",       _websiteId);
-            request.Headers.TryAddWithoutValidation("x-moduleid",        "7");
-            request.Headers.TryAddWithoutValidation("x-productid",       "1");
-            request.Headers.TryAddWithoutValidation("x-terminalid",      "3");
-            request.Headers.TryAddWithoutValidation("x-ismobile",        "false");
-            request.Headers.TryAddWithoutValidation("x-requestid",       Guid.NewGuid().ToString());
-            request.Headers.TryAddWithoutValidation("x-timezone-offset", "240");
-            request.Headers.TryAddWithoutValidation("x-timezoneid",      "America/New_York");
-            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
-
-            var response = await client.SendAsync(request, ct);
-            var body     = await response.Content.ReadAsStringAsync(ct);
-
-            _logger.LogInformation("CPS Golf: RegisterTransactionId → {Status}", (int)response.StatusCode);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("CPS Golf: RegisterTransactionId error {Status}: {Body}",
-                    (int)response.StatusCode,
-                    body.Length > 300 ? body[..300] : body);
-                return fallback;
-            }
-
-            // Primary: parse transactionId from JSON response body
-            if (!string.IsNullOrWhiteSpace(body))
-            {
-                try
-                {
-                    using var doc = JsonDocument.Parse(body);
-                    var root = doc.RootElement;
-
-                    // Body could be {"transactionId":"..."} object or a bare "\"guid\"" string
-                    string? id = root.ValueKind == JsonValueKind.String
-                        ? root.GetString()
-                        : GetStringProp(root, "transactionId", "TransactionId", "transaction_id");
-
-                    if (!string.IsNullOrEmpty(id))
-                    {
-                        _logger.LogInformation("CPS Golf: TransactionId from body = {Id}", id);
-                        return id;
-                    }
-                }
-                catch { /* fall through */ }
-            }
-
-            // Fallback: x-correlation-id response header
-            if (response.Headers.TryGetValues("x-correlation-id", out var vals))
-            {
-                var id = vals.FirstOrDefault();
-                if (!string.IsNullOrEmpty(id))
-                {
-                    _logger.LogInformation("CPS Golf: TransactionId from x-correlation-id header = {Id}", id);
-                    return id;
-                }
-            }
-
-            _logger.LogWarning("CPS Golf: RegisterTransactionId — no ID found, using random GUID. Body: {Body}", body);
+            _logger.LogInformation("CPS Golf: RegisterTransactionId → Body: {Body}",
+                body.Length > 200 ? body[..200] : body);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "CPS Golf: RegisterTransactionId failed — using random GUID");
+            _logger.LogWarning(ex, "CPS Golf: RegisterTransactionId exception — will proceed with generated GUID");
         }
-        return fallback;
+
+        _logger.LogInformation("CPS Golf: Using transactionId = {Id}", transactionId);
+        return transactionId;
     }
 
     /// <summary>
     /// Builds the bookingList array for TeeTimePricesCalculation and SaveTeeTime.
     /// Participant 1 is the authenticated member; additional players are unassigned.
     /// </summary>
-    private object[] BuildBookingList(int teeSheetId, int players, string transactionId)
+    private object[] BuildBookingList(int teeSheetId, int players, string? transactionId)
     {
         var list = new List<object>();
         for (int i = 1; i <= players; i++)
@@ -656,31 +660,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         var client  = _httpClientFactory.CreateClient("CpsGolf");
         var request = new HttpRequestMessage(new HttpMethod(method), url);
 
-        // Use short-lived token for read operations (RegisterTransactionId, TeeTimes search);
-        // fall back to main token when short-lived isn't available or for write operations.
-        var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
-            ? _shortLivedToken
-            : _bearerToken;
-        if (!string.IsNullOrEmpty(token))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        // Required CPS Golf custom headers (discovered from browser DevTools)
-        request.Headers.TryAddWithoutValidation("client-id",          "onlineresweb");
-        request.Headers.TryAddWithoutValidation("x-componentid",      _componentId);
-        request.Headers.TryAddWithoutValidation("x-siteid",           _siteId.ToString());
-        request.Headers.TryAddWithoutValidation("x-websiteid",        _websiteId);
-        request.Headers.TryAddWithoutValidation("x-moduleid",         "7");
-        request.Headers.TryAddWithoutValidation("x-productid",        "1");
-        request.Headers.TryAddWithoutValidation("x-terminalid",       "3");
-        request.Headers.TryAddWithoutValidation("x-ismobile",         "false");
-        request.Headers.TryAddWithoutValidation("x-requestid",        Guid.NewGuid().ToString());
-        request.Headers.TryAddWithoutValidation("x-timezone-offset",  "240");
-        request.Headers.TryAddWithoutValidation("x-timezoneid",       "America/New_York");
-
-        // Caller-supplied extra headers (e.g. x-correlation-id for TeeTimes)
-        if (extraHeaders != null)
-            foreach (var kv in extraHeaders)
-                request.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+        ApplyRequestHeaders(request, useShortToken, extraHeaders);
 
         // Always send application/json — server returns 415 if Content-Type is absent on POST
         var bodyJson = body != null ? JsonSerializer.Serialize(body) : "{}";
@@ -689,6 +669,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
         var response = await client.SendAsync(request, ct);
         var content  = await response.Content.ReadAsStringAsync(ct);
+
+        // Capture all cookies from response
+        CaptureCookies(response.Headers
+            .TryGetValues("Set-Cookie", out var setCookies) ? setCookies : []);
 
         _logger.LogInformation("CPS Golf API {Method} {Url} → {Status}",
             method, url, (int)response.StatusCode);
@@ -713,6 +697,71 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     {
         var (_, parsed) = await CallApiRawAsync<T>(method, url, body, useShortToken, extraHeaders, ct);
         return parsed;
+    }
+
+    /// <summary>
+    /// Applies all standard CPS Golf request headers to an outgoing request.
+    /// </summary>
+    private void ApplyRequestHeaders(HttpRequestMessage request, bool useShortToken,
+        Dictionary<string, string>? extraHeaders = null)
+    {
+        // Auth token
+        var token = useShortToken && !string.IsNullOrEmpty(_shortLivedToken)
+            ? _shortLivedToken : _bearerToken;
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // CPS Golf custom headers
+        foreach (var (k, v) in new Dictionary<string, string>
+        {
+            ["client-id"]          = "onlineresweb",
+            ["x-componentid"]      = _componentId,
+            ["x-siteid"]           = _siteId.ToString(),
+            ["x-websiteid"]        = _websiteId,
+            ["x-moduleid"]         = "7",
+            ["x-productid"]        = "1",
+            ["x-terminalid"]       = "3",
+            ["x-ismobile"]         = "false",
+            ["x-requestid"]        = Guid.NewGuid().ToString(),
+            ["x-timezone-offset"]  = "240",
+            ["x-timezoneid"]       = "America/New_York",
+            // Browser cache-busting headers (sent by Angular on every request)
+            ["origin"]             = _baseUrl ?? "",
+            ["cache-control"]      = "no-cache, no-store, must-revalidate",
+            ["pragma"]             = "no-cache",
+            ["expires"]            = "Sat, 01 Jan 2000 00:00:00 GMT",
+            ["if-modified-since"]  = "0",
+        })
+            request.Headers.TryAddWithoutValidation(k, v);
+
+        // Caller-supplied overrides (e.g. Referer, x-correlation-id)
+        if (extraHeaders != null)
+            foreach (var (k, v) in extraHeaders)
+                request.Headers.TryAddWithoutValidation(k, v);
+
+        // Replay all captured cookies
+        if (_cookies.Count > 0)
+            request.Headers.TryAddWithoutValidation("cookie",
+                string.Join("; ", _cookies.Select(kv => $"{kv.Key}={kv.Value}")));
+    }
+
+    /// <summary>
+    /// Parses Set-Cookie headers and upserts each cookie into the shared jar.
+    /// Only the name=value pair is kept (path/domain/expires attributes are discarded).
+    /// </summary>
+    private void CaptureCookies(IEnumerable<string> setCookieHeaders)
+    {
+        foreach (var header in setCookieHeaders)
+        {
+            var nameValue = header.Split(';')[0].Trim();
+            var eq = nameValue.IndexOf('=');
+            if (eq <= 0) continue;
+
+            var name  = nameValue[..eq].Trim();
+            var value = nameValue[(eq + 1)..].Trim();
+            _cookies[name] = value;
+            _logger.LogInformation("CPS Golf: Cookie set {Name}={Value}", name, value);
+        }
     }
 
     private static string? GetStringProp(JsonElement el, params string[] names)

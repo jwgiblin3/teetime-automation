@@ -27,6 +27,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     private string  _componentId = "1";
     private string  _websiteId   = "eac579f2-7b7d-4aa2-b1fc-08daa2e7b047"; // Paramus default
     private string  _classCode   = "RS";
+    private string? _dynamicClassCode;          // updated from TeeTimePrices defaultClassCode
     private string  _memberStoreId = "1";
     private int     _golferId    = 0;
     private string  _acct        = "0";
@@ -147,6 +148,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             // Register transaction (use short-lived token)
             var transactionId = await RegisterTransactionAsync(useShortToken: true, ct);
 
+            // Use the class code returned by TeeTimePrices if we have one — it may differ from the
+            // raw JWT value (e.g. JWT gives "RS" but the pricing engine returns "1RBS").
+            var effectiveClassCode = _dynamicClassCode ?? _classCode;
+
             // ISO date format (yyyy-MM-dd) — avoids encoding/space issues with "Sat Mar 28 2026" style
             var searchDate = date.ToString("yyyy-MM-dd");
             var searchUrl  = $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes" +
@@ -159,16 +164,25 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                              $"&teeOffTimeMin=0&teeOffTimeMax=23" +
                              $"&isChangeTeeOffTime=true" +
                              $"&teeSheetSearchView=5" +
-                             $"&classCode={_classCode}" +
+                             $"&classCode={effectiveClassCode}" +
                              $"&defaultOnlineRate=N" +
                              $"&isUseCapacityPricing=false" +
                              $"&memberStoreId={_memberStoreId}" +
                              $"&searchType=1";
 
+            _logger.LogInformation(
+                "CPS Golf: TeeTimes search — classCode={ClassCode} (jwt={JwtClass} dynamic={DynamicClass})",
+                effectiveClassCode, _classCode, _dynamicClassCode ?? "(none)");
+
             var (rawBody, teeTimes) = await CallApiRawAsync<JsonElement>(
                 "GET", searchUrl,
                 useShortToken: true,
-                extraHeaders: new Dictionary<string, string> { ["x-correlation-id"] = transactionId },
+                extraHeaders: new Dictionary<string, string>
+                {
+                    ["x-correlation-id"] = transactionId,
+                    // Referer mirrors what the Angular SPA sends on every TeeTimes request
+                    ["Referer"]          = $"{_baseUrl}/onlineresweb/teetime/book"
+                },
                 ct: ct);
 
             _logger.LogInformation("CPS Golf: TeeTimes raw response (first 800 chars): {Body}",
@@ -275,38 +289,49 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return result;
             }
 
-            // Step 1: TeeTimePrices → server returns bookingTransactionId (anchors the session)
-            var (pricesRaw, bookingTransactionId) = await GetTeeTimePricesTransactionIdAsync(teeSheetId, players, ct);
+            // ── Golden Thread: ONE transactionId registered upfront and threaded through every step ──
+            // The CPS middleware validates a "chain of custody": RegisterTransactionId → Guid A →
+            // CheckRestrictReservation (Guid A) → TeeTimePrices (Guid A) → ReserveTeeTimes (Guid A).
+            // Previously we were generating separate IDs at each step, which broke the chain.
 
-            _logger.LogInformation("CPS Golf: TeeTimePrices → bookingTransactionId={Id} | Body={Body}",
-                bookingTransactionId,
-                pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
+            // Step 1: Register the master transactionId (Guid A)
+            var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+            _logger.LogInformation("CPS Golf: Master transactionId registered — {TxId}", transactionId);
 
-            // Step 2: Build booking list
-            var bookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
-
-            // Step 3: CheckRestrictReservation
+            // Step 2: CheckRestrictReservation — send Guid A
             var (restrictRaw, _) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/CheckRestrictReservation",
-                new { teeSheetId, courseId = _courseId, siteId = _siteId, classCode = _classCode },
+                new { teeSheetId, courseId = _courseId, siteId = _siteId, classCode = _classCode, transactionId },
                 useShortToken: false, null, ct);
 
             _logger.LogInformation("CPS Golf: CheckRestrictReservation → {Body}",
                 restrictRaw.Length > 200 ? restrictRaw[..200] : restrictRaw);
 
-            // Step 4: Register a fresh transactionId — must be the last RegisterTransactionId call
-            //         before ReserveTeeTimes (server validates this is the "active" transaction).
-            //         Do NOT re-register bookingTransactionId — that would invalidate it.
-            var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+            // Step 3: TeeTimePrices — pass Guid A so the server anchors it to this session.
+            //         The server returns a bookingTransactionId (the cart/session token used by ReserveTeeTimes).
+            var (pricesRaw, bookingTransactionId) = await GetTeeTimePricesTransactionIdAsync(
+                teeSheetId, players, transactionId, ct);
+
+            _logger.LogInformation("CPS Golf: TeeTimePrices → bookingTransactionId={Id} | Body={Body}",
+                bookingTransactionId,
+                pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
+
+            // Step 4: Register bookingTransactionId (Guid B) — the middleware requires
+            // that BOTH Guid A (master) and Guid B (cart/pricing token) are registered
+            // before ReserveTeeTimes will accept the call.
+            _logger.LogInformation("CPS Golf: Registering bookingTransactionId (Guid B) — {Id}", bookingTransactionId);
+            await RegisterTransactionAsync(useShortToken: false, ct, existingId: bookingTransactionId);
+
+            // Step 5: Build booking list
+            var bookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
 
             _logger.LogInformation(
                 "CPS Golf: Ready to reserve — transactionId={TxId}  bookingTransactionId={BookingTxId}",
                 transactionId, bookingTransactionId);
 
-            // Step 5: ReserveTeeTimes
-            // lockedTeeTimesSessionId — origin still under investigation, using generated GUID.
-            var lockedTeeTimesSessionId = Guid.NewGuid().ToString();
+            // Step 6: ReserveTeeTimes
+            // lockedTeeTimesSessionId is the cart/session token and must equal bookingTransactionId (Guid B).
             var checkoutReferer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
 
             var reservePayload = new
@@ -333,7 +358,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                     ibxCC     = (string?)null
                 },
                 sessionGuid             = (string?)null,
-                lockedTeeTimesSessionId,
+                lockedTeeTimesSessionId = bookingTransactionId,   // must match Guid B
                 bookingTransactionId,
                 transactionId
             };
@@ -534,14 +559,16 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     }
 
     /// <summary>
-    /// Calls TeeTimePrices with transactionId=null so the server generates and returns one.
-    /// Returns the raw response body and the server-issued transactionId.
+    /// Calls TeeTimePrices, passing the already-registered <paramref name="existingTransactionId"/>
+    /// (Guid A) so the server anchors pricing to that session.
+    /// Returns the raw response body and the server-issued bookingTransactionId (the cart token
+    /// that ReserveTeeTimes expects).  Also captures <c>defaultClassCode</c> for future searches.
     /// </summary>
-    private async Task<(string RawBody, string TransactionId)> GetTeeTimePricesTransactionIdAsync(
-        int teeSheetId, int players, CancellationToken ct)
+    private async Task<(string RawBody, string BookingTransactionId)> GetTeeTimePricesTransactionIdAsync(
+        int teeSheetId, int players, string existingTransactionId, CancellationToken ct)
     {
-        // Only the booking member is in the list for the prices call (participantNo driven by teeSheetId slot)
-        var bookingList = BuildBookingList(teeSheetId, players, transactionId: null);
+        // Only the booking member is in the list for the prices call
+        var bookingList = BuildBookingList(teeSheetId, players, transactionId: existingTransactionId);
 
         var payload = new
         {
@@ -559,7 +586,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             thirdPartyId             = (string?)null,
             ibxCardOnFile            = (string?)null,
             advancedBookingFee       = (string?)null,
-            transactionId            = (string?)null,
+            transactionId            = existingTransactionId,   // ← thread Guid A through
             isPrepayDeposit          = false
         };
 
@@ -571,17 +598,38 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             extraHeaders: new Dictionary<string, string> { ["Referer"] = referer },
             ct);
 
-        string? transactionId = null;
+        // Capture defaultClassCode — may differ from the JWT classCode (e.g. "1RBS" vs "RS").
+        // Store it so subsequent /TeeTimes searches use the correct restricted class.
         if (response.ValueKind != JsonValueKind.Undefined)
-            transactionId = GetStringProp(response, "transactionId", "TransactionId");
-
-        if (string.IsNullOrEmpty(transactionId))
         {
-            _logger.LogWarning("CPS Golf: TeeTimePrices did not return a transactionId (status may be non-2xx) — falling back to RegisterTransactionId");
-            transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
+            var dynClass = GetStringProp(response,
+                "defaultClassCode", "DefaultClassCode", "classCode", "ClassCode");
+            if (!string.IsNullOrEmpty(dynClass) && dynClass != _dynamicClassCode)
+            {
+                _logger.LogInformation(
+                    "CPS Golf: TeeTimePrices returned defaultClassCode={DynClass} (was {Old})",
+                    dynClass, _dynamicClassCode ?? _classCode);
+                _dynamicClassCode = dynClass;
+            }
         }
 
-        return (rawBody, transactionId);
+        // The server returns bookingTransactionId — this is the cart token for ReserveTeeTimes.
+        string? bookingTransactionId = null;
+        if (response.ValueKind != JsonValueKind.Undefined)
+            bookingTransactionId = GetStringProp(response,
+                "bookingTransactionId", "BookingTransactionId",
+                "transactionId",       "TransactionId");
+
+        if (string.IsNullOrEmpty(bookingTransactionId))
+        {
+            // Fall back: use the master transactionId as the booking token.
+            // This keeps the chain intact even if the server doesn't echo it back.
+            _logger.LogWarning(
+                "CPS Golf: TeeTimePrices did not return a bookingTransactionId — using master transactionId as fallback");
+            bookingTransactionId = existingTransactionId;
+        }
+
+        return (rawBody, bookingTransactionId);
     }
 
     /// <summary>
@@ -628,6 +676,7 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
             list.Add(new
             {
                 teeSheetId,
+                transactionId,          // CPS requires this on every player object
                 holes               = 18,
                 participantNo       = i,
                 golferId            = _golferId,
@@ -714,6 +763,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         // CPS Golf custom headers
         foreach (var (k, v) in new Dictionary<string, string>
         {
+            // Standard browser headers — CPS middleware filters on these to block bots
+            ["accept"]             = "application/json, text/plain, */*",
+            ["x-requested-with"]   = "XMLHttpRequest",
+            // CPS-specific headers
             ["client-id"]          = "onlineresweb",
             ["x-componentid"]      = _componentId,
             ["x-siteid"]           = _siteId.ToString(),

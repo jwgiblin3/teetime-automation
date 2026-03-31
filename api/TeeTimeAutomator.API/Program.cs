@@ -248,6 +248,11 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 
 app.MapControllers();
 
+// Always-available health check — Railway uses this to confirm the container is up.
+// Must return 200 in all environments; /swagger is only mounted in Development.
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+   .AllowAnonymous();
+
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.Run();

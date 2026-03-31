@@ -6,7 +6,7 @@
     "buildContext": "api/TeeTimeAutomator.API"
   },
   "deploy": {
-    "healthcheckPath": "/",
+    "healthcheckPath": "/health",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

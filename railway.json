@@ -3,7 +3,7 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "api/TeeTimeAutomator.API/Dockerfile",
-    "buildContext": "api/TeeTimeAutomator.API"
+        "buildContext": "."
   },
   "deploy": {
     "healthcheckPath": "/health",

@@ -334,6 +334,7 @@ import { AuthService } from '../../../services/auth.service';
                                                             caret-color: #c8e6c9;
                                                                     transition: background-color 9999s ease-in-out 0s;
     }
+    }
   `]
 })
 export class LoginComponent implements OnInit {

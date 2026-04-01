@@ -1,9 +1,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
-COPY *.csproj .
+COPY api/TeeTimeAutomator.API/TeeTimeAutomator.API.csproj ./
 RUN dotnet restore
 
-COPY . .
+COPY api/TeeTimeAutomator.API/ ./
 RUN dotnet publish -c Release -o out
 
 # Install Playwright browsers in build stage (needs SDK).

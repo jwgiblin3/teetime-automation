@@ -283,6 +283,47 @@ import { AuthService } from '../../../services/auth.service';
         max-width: 100%;
       }
     }
+
+    /* ── Input field branding ── */
+    ::ng-deep .login-card {
+      /* Input text */
+      .mat-mdc-input-element {
+        color: #c8e6c9 !important;
+        font-size: 1.75rem !important;
+        line-height: 1.2 !important;
+      }
+
+      /* Floating label (unfocused + focused) */
+      .mat-mdc-floating-label,
+      .mdc-floating-label {
+        color: #c8e6c9 !important;
+      }
+
+      /* Input background */
+      .mdc-text-field {
+        background-color: #121212 !important;
+        border-radius: 4px 4px 0 0;
+      }
+
+      /* Outline border */
+      .mdc-notched-outline__leading,
+      .mdc-notched-outline__notch,
+      .mdc-notched-outline__trailing {
+        border-color: #2e7d32 !important;
+      }
+
+      /* Focused outline */
+      .mdc-text-field--focused .mdc-notched-outline__leading,
+      .mdc-text-field--focused .mdc-notched-outline__notch,
+      .mdc-text-field--focused .mdc-notched-outline__trailing {
+        border-color: #c8e6c9 !important;
+      }
+
+      /* Visibility toggle icon */
+      .mat-mdc-icon-button .mat-icon {
+        color: #c8e6c9 !important;
+      }
+    }
   `]
 })
 export class LoginComponent implements OnInit {

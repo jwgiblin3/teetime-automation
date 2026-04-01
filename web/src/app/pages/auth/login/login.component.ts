@@ -323,17 +323,16 @@ import { AuthService } from '../../../services/auth.service';
       .mat-mdc-icon-button .mat-icon {
         color: #c8e6c9 !important;
       }
+            /* Chrome autofill override */
+                  input:-webkit-autofill,
+                        input:-webkit-autofill:hover,
+                              input:-webkit-autofill:focus,
+                                    input:-webkit-autofill:active {
 
-      /* Chrome autofill override — prevents white/yellow background injection */
-      input:-webkit-autofill,
-      input:-webkit-autofill:hover,
-      input:-webkit-autofill:focus,
-      input:-webkit-autofill:active {
-        -webkit-box-shadow: 0 0 0 1000px #121212 inset !important;
-        -webkit-text-fill-color: #c8e6c9 !important;
-        caret-color: #c8e6c9;
-        transition: background-color 9999s ease-in-out 0s;
-      }
+                                            -webkit-box-shadow: 0 0 0 1000px #121212 inset !important;
+                                                    -webkit-text-fill-color: #c8e6c9 !important;
+                                                            caret-color: #c8e6c9;
+                                                                    transition: background-color 9999s ease-in-out 0s;
     }
   `]
 })

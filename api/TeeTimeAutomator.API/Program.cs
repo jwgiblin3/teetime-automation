@@ -13,6 +13,7 @@ using TeeTimeAutomator.API.Adapters;
 using TeeTimeAutomator.API.Data;
 using TeeTimeAutomator.API.Models;
 using TeeTimeAutomator.API.Models.DTOs;
+using TeeTimeAutomator.API.Models.Enums;
 using TeeTimeAutomator.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -211,6 +212,48 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
     Log.Information("Database migrations applied");
+
+    // Seed courses if none exist
+    if (!db.Courses.Any())
+    {
+        db.Courses.AddRange(
+            new Course
+            {
+                CourseName = "Bethpage Black",
+                Location = "Farmingdale, NY",
+                BookingUrl = "https://parks.ny.gov/golf/",
+                Platform = CoursePlatform.CpsGolf,
+                ReleaseScheduleJson = "{\"daysInAdvance\":14,\"releaseTime\":\"06:00\"}",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new Course
+            {
+                CourseName = "Pebble Beach Golf Links",
+                Location = "Pebble Beach, CA",
+                BookingUrl = "https://www.pebblebeach.com/golf/",
+                Platform = CoursePlatform.ForeUp,
+                ReleaseScheduleJson = "{\"daysInAdvance\":30,\"releaseTime\":\"07:00\"}",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new Course
+            {
+                CourseName = "TPC Sawgrass",
+                Location = "Ponte Vedra Beach, FL",
+                BookingUrl = "https://www.tpc.com/sawgrass/",
+                Platform = CoursePlatform.GolfNow,
+                ReleaseScheduleJson = "{\"daysInAdvance\":7,\"releaseTime\":\"08:00\"}",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            }
+        );
+        db.SaveChanges();
+        Log.Information("Seeded 3 courses into the database");
+    }
 }
 
 // Configure middleware

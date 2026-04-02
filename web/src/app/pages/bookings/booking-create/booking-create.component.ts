@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
   FormBuilder,
+  FormControl,
   FormGroup,
   ReactiveFormsModule,
   Validators
@@ -79,25 +80,35 @@ import { CreateBookingRequest } from '../../../models/booking.models';
           <!-- Step 2: Date and Time -->
           <mat-step label="Date & Time" [stepControl]="dateTimeForm" editable>
             <form [formGroup]="dateTimeForm" class="step-form">
+
               <mat-form-field class="full-width">
-                <mat-label>Date &amp; Time</mat-label>
+                <mat-label>Date</mat-label>
                 <input
                   matInput
                   [matDatepicker]="datePicker"
-                  [matTimepicker]="timePicker"
+                  [formControl]="requestedDateTimeCtrl"
                   [min]="minDate"
-                  formControlName="requestedDateTime"
-                  required
+                  placeholder="MM/DD/YYYY"
                 />
                 <mat-datepicker-toggle matIconSuffix [for]="datePicker">
                   <mat-icon matDatepickerToggleIcon>calendar_month</mat-icon>
                 </mat-datepicker-toggle>
-                <mat-timepicker-toggle matIconSuffix [for]="timePicker"></mat-timepicker-toggle>
                 <mat-datepicker #datePicker color="primary"></mat-datepicker>
-                <mat-timepicker #timePicker></mat-timepicker>
-                <mat-error *ngIf="dateTimeForm.get('requestedDateTime')?.hasError('required')">
-                  Date and time are required
+                <mat-error *ngIf="requestedDateTimeCtrl.hasError('required')">
+                  Date is required
                 </mat-error>
+              </mat-form-field>
+
+              <mat-form-field class="full-width">
+                <mat-label>Time</mat-label>
+                <input
+                  matInput
+                  [matTimepicker]="timePicker"
+                  [formControl]="requestedDateTimeCtrl"
+                  placeholder="HH:MM AM/PM"
+                />
+                <mat-timepicker-toggle matIconSuffix [for]="timePicker"></mat-timepicker-toggle>
+                <mat-timepicker #timePicker></mat-timepicker>
               </mat-form-field>
 
               <div class="step-actions">
@@ -459,6 +470,10 @@ export class BookingCreateComponent implements OnInit {
   selectedCourseName = '';
   submitting = false;
   minDate = new Date();
+
+  get requestedDateTimeCtrl(): FormControl {
+    return this.dateTimeForm.get('requestedDateTime') as FormControl;
+  }
 
 
   constructor(

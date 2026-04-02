@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
+import { MatTimepickerModule } from '@angular/material/timepicker';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -36,6 +37,7 @@ import { CreateBookingRequest } from '../../../models/booking.models';
     MatSelectModule,
     MatDatepickerModule,
     MatNativeDateModule,
+    MatTimepickerModule,
     MatSliderModule,
     MatCardModule,
     MatButtonModule,
@@ -78,50 +80,25 @@ import { CreateBookingRequest } from '../../../models/booking.models';
           <mat-step label="Date & Time" [stepControl]="dateTimeForm" editable>
             <form [formGroup]="dateTimeForm" class="step-form">
               <mat-form-field class="full-width">
-                <mat-label>Requested Date</mat-label>
+                <mat-label>Date &amp; Time</mat-label>
                 <input
                   matInput
-                  [matDatepicker]="picker"
+                  [matDatepicker]="datePicker"
+                  [matTimepicker]="timePicker"
                   [min]="minDate"
-                  formControlName="requestedDate"
-                  placeholder="MM/DD/YYYY"
+                  formControlName="requestedDateTime"
                   required
                 />
-                <mat-datepicker-toggle matIconSuffix [for]="picker">
+                <mat-datepicker-toggle matIconSuffix [for]="datePicker">
                   <mat-icon matDatepickerToggleIcon>calendar_month</mat-icon>
                 </mat-datepicker-toggle>
-                <mat-datepicker #picker color="primary"></mat-datepicker>
-                <mat-error *ngIf="dateTimeForm.get('requestedDate')?.hasError('required')">
-                  Date is required
+                <mat-timepicker-toggle matIconSuffix [for]="timePicker"></mat-timepicker-toggle>
+                <mat-datepicker #datePicker color="primary"></mat-datepicker>
+                <mat-timepicker #timePicker></mat-timepicker>
+                <mat-error *ngIf="dateTimeForm.get('requestedDateTime')?.hasError('required')">
+                  Date and time are required
                 </mat-error>
               </mat-form-field>
-
-              <div class="time-picker-row">
-                <mat-form-field class="time-picker-field">
-                  <mat-label>Hour</mat-label>
-                  <mat-select formControlName="preferredHour" required>
-                    <mat-option *ngFor="let h of hours" [value]="h.value">
-                      {{ h.label }}
-                    </mat-option>
-                  </mat-select>
-                  <mat-icon matPrefix style="margin-right:8px; color:#43a047">schedule</mat-icon>
-                  <mat-error *ngIf="dateTimeForm.get('preferredHour')?.hasError('required')">
-                    Hour is required
-                  </mat-error>
-                </mat-form-field>
-
-                <mat-form-field class="time-picker-field">
-                  <mat-label>Minute</mat-label>
-                  <mat-select formControlName="preferredMinute" required>
-                    <mat-option *ngFor="let m of minutes" [value]="m.value">
-                      {{ m.label }}
-                    </mat-option>
-                  </mat-select>
-                  <mat-error *ngIf="dateTimeForm.get('preferredMinute')?.hasError('required')">
-                    Minute is required
-                  </mat-error>
-                </mat-form-field>
-              </div>
 
               <div class="step-actions">
                 <button mat-button matStepperPrevious>Back</button>
@@ -221,7 +198,7 @@ import { CreateBookingRequest } from '../../../models/booking.models';
               <div class="review-item">
                 <span class="review-label">Date:</span>
                 <span class="review-value">
-                  {{ dateTimeForm.get('requestedDate')?.value | date: 'MMMM dd, yyyy' }}
+                  {{ dateTimeForm.get('requestedDateTime')?.value | date: 'MMMM dd, yyyy' }}
                 </span>
               </div>
 
@@ -305,16 +282,6 @@ import { CreateBookingRequest } from '../../../models/booking.models';
       margin-top: 1rem;
       padding-top: 1rem;
       border-top: 1px solid #303030;
-    }
-
-    .time-picker-row {
-      display: flex;
-      gap: 1rem;
-      width: 100%;
-    }
-
-    .time-picker-field {
-      flex: 1;
     }
 
     .time-window-section {
@@ -493,20 +460,6 @@ export class BookingCreateComponent implements OnInit {
   submitting = false;
   minDate = new Date();
 
-  hours = Array.from({ length: 15 }, (_, i) => {
-    const h = i + 6; // 6 AM → 8 PM
-    const h12 = h === 12 ? 12 : h % 12;
-    const ampm = h < 12 ? 'AM' : 'PM';
-    return { value: h, label: `${h12}:00 ${ampm}` };
-  });
-
-  minutes = [
-    { value: 0,  label: ':00' },
-    { value: 15, label: ':15' },
-    { value: 30, label: ':30' },
-    { value: 45, label: ':45' }
-  ];
-
 
   constructor(
     private fb: FormBuilder,
@@ -526,9 +479,7 @@ export class BookingCreateComponent implements OnInit {
     });
 
     this.dateTimeForm = this.fb.group({
-      requestedDate: ['', Validators.required],
-      preferredHour: [8, Validators.required],
-      preferredMinute: [0, Validators.required]
+      requestedDateTime: [null, Validators.required]
     });
 
     this.timeWindowForm = this.fb.group({
@@ -546,9 +497,10 @@ export class BookingCreateComponent implements OnInit {
   }
 
   formatTime(): string {
-    const h = this.dateTimeForm?.get('preferredHour')?.value;
-    const m = this.dateTimeForm?.get('preferredMinute')?.value;
-    if (h == null || m == null) return '';
+    const dt: Date = this.dateTimeForm?.get('requestedDateTime')?.value;
+    if (!dt) return '';
+    const h = dt.getHours();
+    const m = dt.getMinutes();
     const h12 = h % 12 === 0 ? 12 : h % 12;
     const ampm = h < 12 ? 'AM' : 'PM';
     return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
@@ -574,13 +526,13 @@ export class BookingCreateComponent implements OnInit {
 
     this.submitting = true;
 
-    const h = this.dateTimeForm.get('preferredHour')?.value ?? 8;
-    const m = this.dateTimeForm.get('preferredMinute')?.value ?? 0;
-    const preferredTime = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    const dt: Date = this.dateTimeForm.get('requestedDateTime')?.value;
+    const requestedDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+    const preferredTime = `${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
 
     const request: CreateBookingRequest = {
       courseId: this.courseForm.get('courseId')?.value,
-      requestedDate: this.dateTimeForm.get('requestedDate')?.value,
+      requestedDate,
       preferredTime,
       timeWindowMinutes: this.timeWindowForm.get('timeWindowMinutes')?.value,
       numberOfPlayers: this.playersForm.get('numberOfPlayers')?.value

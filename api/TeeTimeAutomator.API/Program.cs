@@ -267,6 +267,18 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// Force no-caching on all API responses so browsers never serve stale data
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        context.Response.Headers["Pragma"] = "no-cache";
+        context.Response.Headers["Expires"] = "0";
+    }
+    await next();
+});
+
 app.UseCors("AllowSpecificOrigins");
 
 if (!app.Environment.IsDevelopment())

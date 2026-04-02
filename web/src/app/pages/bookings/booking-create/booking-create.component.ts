@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
   FormBuilder,
-  FormControl,
   FormGroup,
   ReactiveFormsModule,
   Validators
@@ -85,8 +84,8 @@ import { CreateBookingRequest } from '../../../models/booking.models';
                 <mat-label>Date</mat-label>
                 <input
                   matInput
+                  formControlName="requestedDate"
                   [matDatepicker]="datePicker"
-                  [formControl]="requestedDateTimeCtrl"
                   [min]="minDate"
                   placeholder="MM/DD/YYYY"
                 />
@@ -94,7 +93,7 @@ import { CreateBookingRequest } from '../../../models/booking.models';
                   <mat-icon matDatepickerToggleIcon>calendar_month</mat-icon>
                 </mat-datepicker-toggle>
                 <mat-datepicker #datePicker color="primary"></mat-datepicker>
-                <mat-error *ngIf="requestedDateTimeCtrl.hasError('required')">
+                <mat-error *ngIf="dateTimeForm.get('requestedDate')?.hasError('required')">
                   Date is required
                 </mat-error>
               </mat-form-field>
@@ -103,12 +102,14 @@ import { CreateBookingRequest } from '../../../models/booking.models';
                 <mat-label>Time</mat-label>
                 <input
                   matInput
+                  formControlName="requestedTime"
                   [matTimepicker]="timePicker"
-                  [formControl]="requestedDateTimeCtrl"
-                  placeholder="HH:MM AM/PM"
                 />
                 <mat-timepicker-toggle matIconSuffix [for]="timePicker"></mat-timepicker-toggle>
                 <mat-timepicker #timePicker></mat-timepicker>
+                <mat-error *ngIf="dateTimeForm.get('requestedTime')?.hasError('required')">
+                  Time is required
+                </mat-error>
               </mat-form-field>
 
               <div class="step-actions">
@@ -209,7 +210,7 @@ import { CreateBookingRequest } from '../../../models/booking.models';
               <div class="review-item">
                 <span class="review-label">Date:</span>
                 <span class="review-value">
-                  {{ dateTimeForm.get('requestedDateTime')?.value | date: 'MMMM dd, yyyy' }}
+                  {{ dateTimeForm.get('requestedDate')?.value | date: 'MMMM dd, yyyy' }}
                 </span>
               </div>
 
@@ -471,9 +472,6 @@ export class BookingCreateComponent implements OnInit {
   submitting = false;
   minDate = new Date();
 
-  get requestedDateTimeCtrl(): FormControl {
-    return this.dateTimeForm.get('requestedDateTime') as FormControl;
-  }
 
 
   constructor(
@@ -494,7 +492,8 @@ export class BookingCreateComponent implements OnInit {
     });
 
     this.dateTimeForm = this.fb.group({
-      requestedDateTime: [null, Validators.required]
+      requestedDate: [null, Validators.required],
+      requestedTime: [null, Validators.required]
     });
 
     this.timeWindowForm = this.fb.group({
@@ -512,10 +511,10 @@ export class BookingCreateComponent implements OnInit {
   }
 
   formatTime(): string {
-    const dt: Date = this.dateTimeForm?.get('requestedDateTime')?.value;
-    if (!dt) return '';
-    const h = dt.getHours();
-    const m = dt.getMinutes();
+    const t: Date = this.dateTimeForm?.get('requestedTime')?.value;
+    if (!t) return '';
+    const h = t.getHours();
+    const m = t.getMinutes();
     const h12 = h % 12 === 0 ? 12 : h % 12;
     const ampm = h < 12 ? 'AM' : 'PM';
     return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
@@ -541,9 +540,10 @@ export class BookingCreateComponent implements OnInit {
 
     this.submitting = true;
 
-    const dt: Date = this.dateTimeForm.get('requestedDateTime')?.value;
-    const requestedDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-    const preferredTime = `${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+    const dateVal: Date = this.dateTimeForm.get('requestedDate')?.value;
+    const timeVal: Date = this.dateTimeForm.get('requestedTime')?.value;
+    const requestedDate = new Date(dateVal.getFullYear(), dateVal.getMonth(), dateVal.getDate());
+    const preferredTime = `${timeVal.getHours().toString().padStart(2, '0')}:${timeVal.getMinutes().toString().padStart(2, '0')}`;
 
     const request: CreateBookingRequest = {
       courseId: this.courseForm.get('courseId')?.value,

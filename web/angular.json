@@ -80,7 +80,7 @@
               "buildTarget": "teetime-automator-web:build:development"
             }
           },
-          "defaultConfiguration": "production"
+          "defaultConfiguration": "developrodpment"
         },
         "test": {
           "builder": "@angular-devkit/build-angular:karma",

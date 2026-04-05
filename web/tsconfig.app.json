@@ -8,6 +8,10 @@
     "src/main.ts"
   ],
   "include": [
-    "src/**/*.d.ts"
+    "src/**/*.ts"  // <--- Change this from .d.ts to .ts
+  ],
+  "exclude": [
+    "src/test.ts",
+    "src/**/*.spec.ts"
   ]
 }

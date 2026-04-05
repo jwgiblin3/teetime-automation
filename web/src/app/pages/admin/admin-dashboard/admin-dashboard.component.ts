@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 import { AdminService } from '../../../services/admin.service';
+import { finalize } from 'rxjs/operators';
 import { SystemStats, AuditLog } from '../../../models/admin.models';
 
 @Component({
@@ -407,7 +408,7 @@ export class AdminDashboardComponent implements OnInit {
   activityLogs: AuditLog[] = [];
   loading = false;
 
-  constructor(private adminService: AdminService) {}
+  constructor(private adminService: AdminService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     this.loadDashboardData();
@@ -416,23 +417,18 @@ export class AdminDashboardComponent implements OnInit {
   loadDashboardData(): void {
     this.loading = true;
 
-    this.adminService.getStats().subscribe({
-      next: (stats) => {
-        this.stats = stats;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.adminService.getStats().pipe(
+      finalize(() => { this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (stats) => { this.stats = stats; },
+      error: () => {}
     });
 
-    this.adminService.getRecentActivity(10).subscribe({
-      next: (logs) => {
-        this.activityLogs = logs;
-        this.loading = false;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.adminService.getRecentActivity(10).pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (logs) => { this.activityLogs = logs; },
+      error: () => {}
     });
   }
 

@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -9,6 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { BookingService } from '../../../services/booking.service';
 import { CourseService } from '../../../services/course.service';
 import { AuthService } from '../../../services/auth.service';
+import { finalize } from 'rxjs/operators';
 import { BookingRequest, BookingStatus, getStatusIcon, getStatusLabel } from '../../../models/booking.models';
 import { StatusChipComponent } from '../../../shared/status-chip/status-chip.component';
 
@@ -384,7 +385,8 @@ export class DashboardComponent implements OnInit {
   constructor(
     private bookingService: BookingService,
     private courseService: CourseService,
-    private authService: AuthService
+    private authService: AuthService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -394,7 +396,9 @@ export class DashboardComponent implements OnInit {
   loadDashboardData(): void {
     this.loading = true;
 
-    this.bookingService.getBookings().subscribe({
+    this.bookingService.getBookings().pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
       next: (bookings) => {
         this.recentBookings = bookings.slice(0, 5);
 
@@ -412,12 +416,8 @@ export class DashboardComponent implements OnInit {
         const totalCount = bookings.length;
         this.successRate =
           totalCount > 0 ? Math.round((bookedCount / totalCount) * 100) : 0;
-
-        this.loading = false;
       },
-      error: () => {
-        this.loading = false;
-      }
+      error: () => {}
     });
 
     this.courseService.getCourses().subscribe({

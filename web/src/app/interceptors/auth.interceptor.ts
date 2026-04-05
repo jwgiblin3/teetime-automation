@@ -18,16 +18,11 @@ export class AuthInterceptor implements HttpInterceptor {
   ): Observable<HttpEvent<unknown>> {
     const token = this.authService.getToken();
 
-    const headers: Record<string, string> = {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache'
-    };
-
     if (token && this.authService.isLoggedIn()) {
-      headers['Authorization'] = `Bearer ${token}`;
+      request = request.clone({
+        setHeaders: { 'Authorization': `Bearer ${token}` }
+      });
     }
-
-    request = request.clone({ setHeaders: headers });
 
     return next.handle(request);
   }

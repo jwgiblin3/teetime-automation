@@ -289,27 +289,74 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 return result;
             }
 
-            // ── Golden Thread: ONE transactionId registered upfront and threaded through every step ──
-            // The CPS middleware validates a "chain of custody": RegisterTransactionId → Guid A →
-            // CheckRestrictReservation (Guid A) → TeeTimePrices (Guid A) → ReserveTeeTimes (Guid A).
-            // Previously we were generating separate IDs at each step, which broke the chain.
+            // ── Golden Thread ──────────────────────────────────────────────────────────────────────────
+            // Two client-generated GUIDs flow through the booking:
+            //   Guid A (transactionId)    — registered with RegisterTransactionId, threaded via x-correlation-id
+            //                               through CheckRestrictReservation, TeeTimePrices, ReserveTeeTimes.
+            //   Guid B (lockSessionId)    — sent as sessionId to LockTeeTimes; server echoes it back
+            //                               as lockedTeeTimesSessionId used in ReserveTeeTimes.
+            // ────────────────────────────────────────────────────────────────────────────────────────────
 
-            // Step 1: Register the master transactionId (Guid A)
+            // Step 1: Register the master transactionId (Guid A) — client generates it, server confirms.
             var transactionId = await RegisterTransactionAsync(useShortToken: false, ct);
-            _logger.LogInformation("CPS Golf: Master transactionId registered — {TxId}", transactionId);
+            _logger.LogInformation("CPS Golf: Master transactionId (Guid A) registered — {TxId}", transactionId);
 
-            // Step 2: CheckRestrictReservation — send Guid A
+            // Step 2: CheckRestrictReservation — send Guid A in both body and x-correlation-id header
             var (restrictRaw, _) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/CheckRestrictReservation",
                 new { teeSheetId, courseId = _courseId, siteId = _siteId, classCode = _classCode, transactionId },
-                useShortToken: false, null, ct);
+                useShortToken: false,
+                extraHeaders: new Dictionary<string, string> { ["x-correlation-id"] = transactionId },
+                ct);
 
             _logger.LogInformation("CPS Golf: CheckRestrictReservation → {Body}",
                 restrictRaw.Length > 200 ? restrictRaw[..200] : restrictRaw);
 
-            // Step 3: TeeTimePrices — pass Guid A so the server anchors it to this session.
-            //         The server returns a bookingTransactionId (the cart/session token used by ReserveTeeTimes).
+            // Step 3: LockTeeTimes — client generates a second GUID (Guid B) as the session lock token.
+            //         The server echoes sessionId back; that becomes lockedTeeTimesSessionId in ReserveTeeTimes.
+            var lockSessionId = Guid.NewGuid().ToString();   // Guid B
+            _logger.LogInformation("CPS Golf: LockTeeTimes sessionId (Guid B) = {LockId}", lockSessionId);
+
+            var (lockRaw, lockResponse) = await CallApiRawAsync<JsonElement>(
+                "POST",
+                $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/LockTeeTimes",
+                new
+                {
+                    teeSheetIds    = new[] { teeSheetId },
+                    email          = _email,
+                    action         = "Online Reservation V5",
+                    sessionId      = lockSessionId,
+                    golferId       = _golferId,
+                    classCode      = _classCode,
+                    numberOfPlayer = players,
+                    navigateUrl    = "",
+                    isSmartCard    = false,
+                    isGroupBooking = false
+                },
+                useShortToken: false,
+                extraHeaders: new Dictionary<string, string> { ["x-correlation-id"] = transactionId },
+                ct);
+
+            _logger.LogInformation("CPS Golf: LockTeeTimes → {Body}",
+                lockRaw.Length > 300 ? lockRaw[..300] : lockRaw);
+
+            // Extract lockedTeeTimesSessionId — server echoes back the sessionId we sent.
+            var lockedTeeTimesSessionId = GetStringProp(lockResponse,
+                "sessionId", "SessionId",
+                "lockedTeeTimesSessionId", "LockedTeeTimesSessionId") ?? lockSessionId;
+
+            var lockError = GetStringProp(lockResponse, "error", "Error");
+            if (!string.IsNullOrEmpty(lockError))
+            {
+                result.ErrorMessage = $"LockTeeTimes failed: {lockError}";
+                _logger.LogWarning("CPS Golf: LockTeeTimes error — {LockError}", lockError);
+                return result;
+            }
+
+            _logger.LogInformation("CPS Golf: lockedTeeTimesSessionId = {LockId}", lockedTeeTimesSessionId);
+
+            // Step 4: TeeTimePrices — pass Guid A. bookingTransactionId = Guid A (server echoes it back).
             var (pricesRaw, bookingTransactionId) = await GetTeeTimePricesTransactionIdAsync(
                 teeSheetId, players, transactionId, ct);
 
@@ -317,21 +364,17 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 bookingTransactionId,
                 pricesRaw.Length > 500 ? pricesRaw[..500] : pricesRaw);
 
-            // Step 4: Register bookingTransactionId (Guid B) — the middleware requires
-            // that BOTH Guid A (master) and Guid B (cart/pricing token) are registered
-            // before ReserveTeeTimes will accept the call.
-            _logger.LogInformation("CPS Golf: Registering bookingTransactionId (Guid B) — {Id}", bookingTransactionId);
-            await RegisterTransactionAsync(useShortToken: false, ct, existingId: bookingTransactionId);
-
-            // Step 5: Build booking list
-            var bookingList = BuildBookingList(teeSheetId, players, bookingTransactionId);
+            // Step 5: Build booking list using Guid A as the per-player transaction token
+            var bookingList = BuildBookingList(teeSheetId, players, transactionId);
 
             _logger.LogInformation(
-                "CPS Golf: Ready to reserve — transactionId={TxId}  bookingTransactionId={BookingTxId}",
-                transactionId, bookingTransactionId);
+                "CPS Golf: Ready to reserve — transactionId={TxId}  lockedTeeTimesSessionId={LockId}",
+                transactionId, lockedTeeTimesSessionId);
 
             // Step 6: ReserveTeeTimes
-            // lockedTeeTimesSessionId is the cart/session token and must equal bookingTransactionId (Guid B).
+            //   lockedTeeTimesSessionId = Guid B (from LockTeeTimes)
+            //   bookingTransactionId    = Guid A (transactionId — same as what was sent to TeeTimePrices)
+            //   transactionId           = Guid A
             var checkoutReferer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
 
             var reservePayload = new
@@ -358,16 +401,21 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                     ibxCC     = (string?)null
                 },
                 sessionGuid             = (string?)null,
-                lockedTeeTimesSessionId = bookingTransactionId,   // must match Guid B
-                bookingTransactionId,
-                transactionId
+                lockedTeeTimesSessionId,          // Guid B — from LockTeeTimes response
+                bookingTransactionId    = transactionId,  // Guid A
+                transactionId                     // Guid A
             };
 
+            _logger.LogInformation("CPS Golf: ReserveTeeTimes x-correlation-id = {TxId}", transactionId);
             var (rawBody, response) = await CallApiRawAsync<JsonElement>(
                 "POST",
                 $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/ReserveTeeTimes",
                 reservePayload, useShortToken: false,
-                extraHeaders: new Dictionary<string, string> { ["Referer"] = checkoutReferer },
+                extraHeaders: new Dictionary<string, string>
+                {
+                    ["Referer"]          = checkoutReferer,
+                    ["x-correlation-id"] = transactionId   // must equal the Guid A used in CheckRestrictReservation + TeeTimePrices
+                },
                 ct);
 
             _logger.LogInformation("CPS Golf: ReserveTeeTimes raw response: {Body}", rawBody);
@@ -591,11 +639,16 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         };
 
         var referer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
+        _logger.LogInformation("CPS Golf: TeeTimePrices x-correlation-id = {TxId}", existingTransactionId);
         var (rawBody, response) = await CallApiRawAsync<JsonElement>(
             "POST",
             $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePrices",
             payload, useShortToken: false,
-            extraHeaders: new Dictionary<string, string> { ["Referer"] = referer },
+            extraHeaders: new Dictionary<string, string>
+            {
+                ["Referer"]          = referer,
+                ["x-correlation-id"] = existingTransactionId   // must match Guid A from CheckRestrictReservation
+            },
             ct);
 
         // Capture defaultClassCode — may differ from the JWT classCode (e.g. "1RBS" vs "RS").

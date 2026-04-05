@@ -47,7 +47,7 @@ import { User } from '../../models/auth.models';
 
         <div class="navbar-actions" *ngIf="currentUser$ | async as user">
           <button
-            mat-icon-button
+            mat-button
             [matMenuTriggerFor]="userMenu"
             class="user-menu-trigger"
           >
@@ -87,6 +87,7 @@ import { User } from '../../models/auth.models';
       position: sticky;
       top: 0;
       z-index: 100;
+      overflow: hidden;
     }
 
     .navbar-content {
@@ -94,7 +95,9 @@ import { User } from '../../models/auth.models';
       justify-content: space-between;
       align-items: center;
       width: 100%;
+      max-width: 100%;
       padding: 0 1rem;
+      overflow: hidden;
     }
 
     .navbar-brand {
@@ -105,27 +108,30 @@ import { User } from '../../models/auth.models';
       font-weight: 600;
       color: #ffffff;
       cursor: pointer;
-      min-width: 200px;
+      flex-shrink: 0;
 
       mat-icon {
         font-size: 28px;
         width: 28px;
         height: 28px;
+        flex-shrink: 0;
       }
     }
 
     .navbar-links {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.25rem;
       flex: 1;
       justify-content: center;
+      overflow: hidden;
 
       a {
         color: #ffffff;
         text-transform: none;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.25rem;
+        white-space: nowrap;
 
         mat-icon {
           font-size: 18px;
@@ -138,20 +144,24 @@ import { User } from '../../models/auth.models';
     .navbar-actions {
       display: flex;
       align-items: center;
-      gap: 1rem;
-      min-width: 200px;
+      gap: 0.5rem;
+      flex-shrink: 0;
       justify-content: flex-end;
     }
 
     .user-menu-trigger {
       color: #ffffff !important;
-      display: flex;
+      display: flex !important;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.25rem;
+      padding: 0 0.5rem !important;
 
       .user-name {
-        margin-left: 0.5rem;
         font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 120px;
       }
     }
 
@@ -166,12 +176,8 @@ import { User } from '../../models/auth.models';
         display: none;
       }
 
-      .navbar-brand {
-        min-width: auto;
-
-        span {
-          display: none;
-        }
+      .navbar-brand span {
+        display: none;
       }
 
       .user-name {

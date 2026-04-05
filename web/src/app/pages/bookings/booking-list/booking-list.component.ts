@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
@@ -10,6 +10,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { FormsModule } from '@angular/forms';
 import { BookingService } from '../../../services/booking.service';
+import { finalize } from 'rxjs/operators';
 import { BookingRequest, BookingStatus, getStatusLabel } from '../../../models/booking.models';
 import { StatusChipComponent } from '../../../shared/status-chip/status-chip.component';
 
@@ -171,11 +172,12 @@ import { StatusChipComponent } from '../../../shared/status-chip/status-chip.com
     .bookings-card {
       background-color: #1e1e1e !important;
       border-radius: 8px;
-      overflow: hidden;
+      overflow-x: auto;
     }
 
     .bookings-table {
       width: 100%;
+      min-width: 600px;
 
       th {
         background-color: #2a2a2a;
@@ -232,7 +234,8 @@ export class BookingListComponent implements OnInit {
 
   constructor(
     private bookingService: BookingService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -243,14 +246,11 @@ export class BookingListComponent implements OnInit {
     this.loading = true;
     const status = this.selectedStatus as BookingStatus | '';
 
-    this.bookingService.getBookings(status || undefined).subscribe({
-      next: (bookings) => {
-        this.bookings = bookings;
-        this.loading = false;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.bookingService.getBookings(status || undefined).pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (bookings) => { this.bookings = bookings; },
+      error: () => {}
     });
   }
 

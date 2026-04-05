@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { finalize } from 'rxjs/operators';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -518,7 +519,8 @@ export class BookingDetailComponent implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private bookingService: BookingService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -532,14 +534,11 @@ export class BookingDetailComponent implements OnInit {
       return;
     }
 
-    this.bookingService.getBooking(id).subscribe({
-      next: (booking) => {
-        this.booking = booking;
-        this.loading = false;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.bookingService.getBooking(id).pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (booking) => { this.booking = booking; },
+      error: () => {}
     });
   }
 
@@ -547,14 +546,11 @@ export class BookingDetailComponent implements OnInit {
     if (!this.booking?.id) return;
 
     this.retrying = true;
-    this.bookingService.retryBooking(this.booking.id).subscribe({
-      next: (updatedBooking) => {
-        this.booking = updatedBooking;
-        this.retrying = false;
-      },
-      error: () => {
-        this.retrying = false;
-      }
+    this.bookingService.retryBooking(this.booking.id).pipe(
+      finalize(() => { this.retrying = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (updatedBooking) => { this.booking = updatedBooking; },
+      error: () => {}
     });
   }
 

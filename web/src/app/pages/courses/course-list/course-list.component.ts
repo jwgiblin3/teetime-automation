@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -8,6 +8,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
 import { CourseService } from '../../../services/course.service';
+import { finalize } from 'rxjs/operators';
 import { Course, getPlatformLabel } from '../../../models/course.models';
 
 @Component({
@@ -286,7 +287,8 @@ export class CourseListComponent implements OnInit {
 
   constructor(
     private courseService: CourseService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -295,14 +297,11 @@ export class CourseListComponent implements OnInit {
 
   loadCourses(): void {
     this.loading = true;
-    this.courseService.getCourses().subscribe({
-      next: (courses) => {
-        this.courses = courses;
-        this.loading = false;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.courseService.getCourses().pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (courses) => { this.courses = courses; },
+      error: () => {}
     });
   }
 

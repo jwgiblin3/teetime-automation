@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,6 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AdminService } from '../../../services/admin.service';
+import { finalize } from 'rxjs/operators';
 import { AdminUser } from '../../../models/admin.models';
 
 @Component({
@@ -199,7 +200,7 @@ export class AdminUsersComponent implements OnInit {
 
   displayedColumns = ['name', 'email', 'phone', 'bookings', 'status', 'actions'];
 
-  constructor(private adminService: AdminService) {}
+  constructor(private adminService: AdminService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     this.loadUsers();
@@ -207,15 +208,11 @@ export class AdminUsersComponent implements OnInit {
 
   loadUsers(): void {
     this.loading = true;
-    this.adminService.getUsers(this.currentPage + 1, this.pageSize).subscribe({
-      next: (response) => {
-        this.users = response.users;
-        this.totalUsers = response.total;
-        this.loading = false;
-      },
-      error: () => {
-        this.loading = false;
-      }
+    this.adminService.getUsers(this.currentPage + 1, this.pageSize).pipe(
+      finalize(() => { this.loading = false; this.cdr.detectChanges(); })
+    ).subscribe({
+      next: (response) => { this.users = response.users; this.totalUsers = response.total; },
+      error: () => {}
     });
   }
 

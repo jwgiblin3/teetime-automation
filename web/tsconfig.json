@@ -13,7 +13,9 @@
     "declaration": false,
     "downlevelIteration": true,
     "experimentalDecorators": true,
-    "moduleResolution": "node",
+    "moduleResolution": "Bundler",
+    "allowSyntheticDefaultImports": true,
+
     "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
@@ -24,7 +26,8 @@
     ],
     "paths": {
       "@app/*": ["src/app/*"],
-      "@environments/*": ["src/environments/*"]
+      "@environments/*": ["src/environments/*"],
+      "@angular/material/*": ["./node_modules/@angular/material/*"]
     }
   },
   "angularCompilerOptions": {

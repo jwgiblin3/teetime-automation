@@ -1,7 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { NavbarComponent } from './layout/navbar/navbar.component';
+import { environment } from '@environments/environment';
 
 @Component({
   selector: 'app-root',
@@ -19,4 +20,13 @@ import { NavbarComponent } from './layout/navbar/navbar.component';
     }
   `]
 })
-export class AppComponent {}
+export class AppComponent implements OnInit {
+
+  ngOnInit() {
+    // This will print the status as soon as the app loads
+    console.log('--- Environment Check ---');
+    console.log('Is Production:', environment.production);
+    console.log('API URL:', environment.apiUrl);
+    console.log('-------------------------');
+  }
+}

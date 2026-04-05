@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { NavbarComponent } from './layout/navbar/navbar.component';
-import { environment } from '@environments/environment';
+import { environment } from '../environments/environment';
 
 @Component({
   selector: 'app-root',

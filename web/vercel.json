@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist/teetime-automator-web",
-  "framework": "angular",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

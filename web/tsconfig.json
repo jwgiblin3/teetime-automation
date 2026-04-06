@@ -6,10 +6,16 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "sourceMap": true,
+    "declaration": false,
     "downlevelIteration": true,
     "experimentalDecorators": true,
-    "moduleResolution": "node",
+    "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
+
     "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
@@ -30,3 +36,4 @@
     "strictInputAccessModifiers": true,
     "strictTemplates": true
   }
+}

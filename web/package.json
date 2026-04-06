@@ -4,7 +4,7 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build --configuration production",
-    "vercel-build": "node -e \"require('fs').copyFileSync('src/environments/environment.prod.ts','src/environments/environment.ts')\" && ng build",
+    "vercel-build": "node -e \"const fs=require('fs');fs.copyFileSync('src/environments/environment.prod.ts','src/environments/environment.ts');fs.rmSync('.angular',{recursive:true,force:true});\" && ng build",
     "test": "ng test",
     "lint": "ng lint"
   },

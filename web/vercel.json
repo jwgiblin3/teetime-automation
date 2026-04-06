@@ -1,7 +1,7 @@
 {
   "version": 2,
   "buildCommand": "ng build --configuration production",
-  "outputDirectory": "dist/teetime-automator-web/browser",
+  "outputDirectory": "dist/teetime-automator-web",
   "framework": "angular",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

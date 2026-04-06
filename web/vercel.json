@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "ng build --configuration production",
+  "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist/teetime-automator-web",
   "framework": "angular",
   "rewrites": [

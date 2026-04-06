@@ -45,8 +45,15 @@ export class AuthService {
     const scope = 'openid email profile';
     const responseType = 'code';
 
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=${responseType}&scope=${scope}`;
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=${responseType}&scope=${encodeURIComponent(scope)}`;
     window.location.href = googleAuthUrl;
+  }
+
+  handleGoogleCallback(code: string): Observable<AuthResponse> {
+    const redirectUri = `${window.location.origin}/auth/google-callback`;
+    return this.http
+      .post<AuthResponse>(`${this.apiUrl}/google/callback`, { code, redirectUri })
+      .pipe(tap((response) => this.handleAuthResponse(response)));
   }
 
   logout(): void {

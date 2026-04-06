@@ -21,6 +21,13 @@ export const appRoutes: Routes = [
       )
   },
   {
+    path: 'auth/google-callback',
+    loadComponent: () =>
+      import('./pages/auth/google-callback/google-callback.component').then(
+        (m) => m.GoogleCallbackComponent
+      )
+  },
+  {
     path: 'dashboard',
     canActivate: [AuthGuard],
     loadComponent: () =>

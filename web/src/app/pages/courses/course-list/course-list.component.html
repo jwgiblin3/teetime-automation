@@ -1,0 +1,90 @@
+    <div class="courses-container">
+      <div class="courses-header">
+        <h1>My Courses</h1>
+        <button mat-raised-button color="primary" routerLink="/courses/new">
+          <mat-icon>add</mat-icon>
+          Add Course
+        </button>
+      </div>
+
+      <div *ngIf="loading" class="loading-spinner">
+        <mat-spinner diameter="50"></mat-spinner>
+      </div>
+
+      <div *ngIf="!loading && courses.length === 0" class="empty-state">
+        <mat-icon>golf_course</mat-icon>
+        <p>No courses configured yet</p>
+        <p class="empty-description">Add a course to start automating your tee time bookings</p>
+        <button mat-raised-button color="primary" routerLink="/courses/new">
+          Add Your First Course
+        </button>
+      </div>
+
+      <div class="courses-grid" *ngIf="!loading && courses.length > 0">
+        <mat-card class="course-card" *ngFor="let course of courses">
+          <mat-card-header>
+            <div class="card-header-content">
+              <mat-card-title>{{ course.name }}</mat-card-title>
+              <mat-card-subtitle>
+                <mat-chip class="platform-badge">
+                  {{ getPlatformLabel(course.platform) }}
+                </mat-chip>
+              </mat-card-subtitle>
+            </div>
+            <button
+              mat-icon-button
+              [matMenuTriggerFor]="menu"
+              class="menu-button"
+            >
+              <mat-icon>more_vert</mat-icon>
+            </button>
+            <mat-menu #menu="matMenu">
+              <button mat-menu-item [routerLink]="['/courses', course.id, 'edit']">
+                <mat-icon>edit</mat-icon>
+                <span>Edit</span>
+              </button>
+              <button mat-menu-item (click)="deleteCourse(course.id)">
+                <mat-icon>delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </mat-card-header>
+
+          <mat-card-content>
+            <div class="course-details">
+              <div class="detail-row">
+                <span class="label">Booking URL:</span>
+                <a [href]="course.bookingUrl" target="_blank" class="url-link">
+                  {{ truncateUrl(course.bookingUrl) }}
+                  <mat-icon>open_in_new</mat-icon>
+                </a>
+              </div>
+
+              <div class="detail-row">
+                <span class="label">Release Schedule:</span>
+                <span class="value">
+                  {{ course.releaseSchedule.daysBeforeRelease }} days before at
+                  {{ formatTime(course.releaseSchedule.releaseTimeHour, course.releaseSchedule.releaseTimeMinute) }}
+                </span>
+              </div>
+
+              <div class="detail-row">
+                <span class="label">Credentials:</span>
+                <span class="credential-status" [class.saved]="course.credentialsSaved">
+                  <mat-icon>{{ course.credentialsSaved ? 'check_circle' : 'warning' }}</mat-icon>
+                  {{ course.credentialsSaved ? 'Saved' : 'Not configured' }}
+                </span>
+              </div>
+            </div>
+          </mat-card-content>
+
+          <mat-card-actions>
+            <button mat-button color="accent" [routerLink]="['/bookings/new']">
+              <mat-icon>add_circle_outline</mat-icon>
+              Book Now
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
+    </div>
+  

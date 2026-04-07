@@ -1,0 +1,208 @@
+    <div class="create-booking-container">
+      <div class="page-header">
+        <h1>Book a Tee Time</h1>
+      </div>
+
+      <mat-card class="stepper-card">
+        <mat-stepper #stepper>
+          <!-- Step 1: Select Course -->
+          <mat-step label="Select Course" [stepControl]="courseForm" editable>
+            <form [formGroup]="courseForm" class="step-form">
+              <mat-form-field class="full-width">
+                <mat-label>Select a Course</mat-label>
+                <mat-select formControlName="courseId" required>
+                  <mat-option *ngFor="let course of courses" [value]="course.id">
+                    {{ course.name }}
+                  </mat-option>
+                </mat-select>
+                <mat-error *ngIf="courseForm.get('courseId')?.hasError('required')">
+                  Please select a course
+                </mat-error>
+              </mat-form-field>
+
+              <div class="step-actions">
+                <button mat-raised-button color="primary" matStepperNext>
+                  Continue
+                </button>
+              </div>
+            </form>
+          </mat-step>
+
+          <!-- Step 2: Date and Time -->
+          <mat-step label="Date & Time" [stepControl]="dateTimeForm" editable>
+            <form [formGroup]="dateTimeForm" class="step-form">
+
+              <mat-form-field class="full-width">
+                <mat-label>Date</mat-label>
+                <input
+                  matInput
+                  formControlName="requestedDate"
+                  [matDatepicker]="datePicker"
+                  [min]="minDate"
+                  placeholder="MM/DD/YYYY"
+                />
+                <mat-datepicker-toggle matIconSuffix [for]="datePicker">
+                  <mat-icon matDatepickerToggleIcon>calendar_month</mat-icon>
+                </mat-datepicker-toggle>
+                <mat-datepicker #datePicker color="primary"></mat-datepicker>
+                <mat-error *ngIf="dateTimeForm.get('requestedDate')?.hasError('required')">
+                  Date is required
+                </mat-error>
+              </mat-form-field>
+
+              <mat-form-field class="full-width">
+                <mat-label>Preferred Time</mat-label>
+                <input
+                  matInput
+                  type="time"
+                  formControlName="requestedTime"
+                />
+                <mat-icon matPrefix style="margin-right:8px;color:#43a047">schedule</mat-icon>
+                <mat-error *ngIf="dateTimeForm.get('requestedTime')?.hasError('required')">
+                  Time is required
+                </mat-error>
+              </mat-form-field>
+
+              <div class="step-actions">
+                <button mat-button matStepperPrevious>Back</button>
+                <button mat-raised-button color="primary" matStepperNext>
+                  Continue
+                </button>
+              </div>
+            </form>
+          </mat-step>
+
+          <!-- Step 3: Time Window -->
+          <mat-step label="Time Window" [stepControl]="timeWindowForm" editable>
+            <form [formGroup]="timeWindowForm" class="step-form">
+              <div class="time-window-section">
+                <label class="time-window-label">Booking Time Window</label>
+                <p class="time-window-description">
+                  How flexible are you with the booking time? The system will attempt
+                  to book within this window of your preferred time.
+                </p>
+
+                <div class="slider-container">
+                  <div class="slider-label">±{{ timeWindowForm.get('timeWindowMinutes')?.value || 30 }} minutes</div>
+                  <mat-slider
+                    formControlName="timeWindowMinutes"
+                    min="0"
+                    max="120"
+                    step="5"
+                    class="time-slider"
+                  >
+                    <input matSliderThumb />
+                  </mat-slider>
+                  <div class="slider-ticks">
+                    <span>0 min</span>
+                    <span>30 min</span>
+                    <span>60 min</span>
+                    <span>90 min</span>
+                    <span>120 min</span>
+                  </div>
+                </div>
+
+                <p class="time-window-example">
+                  Example: If you prefer 10:00 AM with ±30 minutes, the system will
+                  attempt to book anytime between 9:30 AM and 10:30 AM.
+                </p>
+              </div>
+
+              <div class="step-actions">
+                <button mat-button matStepperPrevious>Back</button>
+                <button mat-raised-button color="primary" matStepperNext>
+                  Continue
+                </button>
+              </div>
+            </form>
+          </mat-step>
+
+          <!-- Step 4: Number of Players -->
+          <mat-step label="Players" [stepControl]="playersForm" editable>
+            <form [formGroup]="playersForm" class="step-form">
+              <div class="players-section">
+                <label class="players-label">Number of Players</label>
+                <p class="players-description">How many players will be golfing?</p>
+
+                <div class="player-buttons">
+                  <button
+                    *ngFor="let num of [1, 2, 3, 4]"
+                    type="button"
+                    class="player-button"
+                    [class.selected]="playersForm.get('numberOfPlayers')?.value === num"
+                    (click)="playersForm.get('numberOfPlayers')?.setValue(num)"
+                  >
+                    {{ num }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="step-actions">
+                <button mat-button matStepperPrevious>Back</button>
+                <button mat-raised-button color="primary" matStepperNext>
+                  Review
+                </button>
+              </div>
+            </form>
+          </mat-step>
+
+          <!-- Step 5: Review -->
+          <mat-step label="Review">
+            <div class="review-section">
+              <h3>Review Your Booking</h3>
+
+              <div class="review-item">
+                <span class="review-label">Course:</span>
+                <span class="review-value">
+                  {{ selectedCourseName }}
+                </span>
+              </div>
+
+              <div class="review-item">
+                <span class="review-label">Date:</span>
+                <span class="review-value">
+                  {{ dateTimeForm.get('requestedDate')?.value | date: 'MMMM dd, yyyy' }}
+                </span>
+              </div>
+
+              <div class="review-item">
+                <span class="review-label">Time:</span>
+                <span class="review-value">{{ formatTime() }}</span>
+              </div>
+
+              <div class="review-item">
+                <span class="review-label">Time Window:</span>
+                <span class="review-value">
+                  ±{{ timeWindowForm.get('timeWindowMinutes')?.value }} minutes
+                </span>
+              </div>
+
+              <div class="review-item">
+                <span class="review-label">Players:</span>
+                <span class="review-value">
+                  {{ playersForm.get('numberOfPlayers')?.value }}
+                </span>
+              </div>
+
+              <div class="step-actions">
+                <button mat-button matStepperPrevious>Back</button>
+                <button
+                  mat-raised-button
+                  color="primary"
+                  (click)="submitBooking()"
+                  [disabled]="submitting"
+                >
+                  <mat-spinner
+                    *ngIf="submitting"
+                    diameter="20"
+                    class="inline-spinner"
+                  ></mat-spinner>
+                  {{ submitting ? 'Creating Booking...' : 'Create Booking' }}
+                </button>
+              </div>
+            </div>
+          </mat-step>
+        </mat-stepper>
+      </mat-card>
+    </div>
+  

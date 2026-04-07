@@ -1,0 +1,104 @@
+    .navbar {
+      background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      overflow: hidden;
+    }
+
+    .navbar-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: 100%;
+      padding: 0 1rem;
+      overflow: hidden;
+    }
+
+    .navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #ffffff;
+      cursor: pointer;
+      flex-shrink: 0;
+
+      mat-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+        flex-shrink: 0;
+      }
+    }
+
+    .navbar-links {
+      display: flex;
+      gap: 0.25rem;
+      flex: 1;
+      justify-content: center;
+      overflow: hidden;
+
+      a {
+        color: #ffffff;
+        text-transform: none;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        white-space: nowrap;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
+      }
+    }
+
+    .navbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+      justify-content: flex-end;
+    }
+
+    .user-menu-trigger {
+      color: #ffffff !important;
+      display: flex !important;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0 0.5rem !important;
+
+      .user-name {
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 120px;
+      }
+    }
+
+    .login-btn {
+      background-color: #c8e6c9 !important;
+      color: #1b5e20 !important;
+      font-weight: 600;
+    }
+
+    @media (max-width: 768px) {
+      .navbar-links {
+        display: none;
+      }
+
+      .navbar-brand span {
+        display: none;
+      }
+
+      .user-name {
+        display: none !important;
+      }
+    }
+  

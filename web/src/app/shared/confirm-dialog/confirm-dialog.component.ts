@@ -16,46 +16,8 @@ export interface ConfirmDialogData {
   selector: 'app-confirm-dialog',
   standalone: true,
   imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
-  template: `
-    <h2 mat-dialog-title>
-      <mat-icon [class.danger]="data.isDangerous">
-        {{ data.isDangerous ? 'warning' : 'help' }}
-      </mat-icon>
-      {{ data.title }}
-    </h2>
-    <mat-dialog-content>
-      {{ data.message }}
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button (click)="onCancel()">
-        {{ data.cancelText || 'Cancel' }}
-      </button>
-      <button
-        mat-raised-button
-        [color]="data.isDangerous ? 'warn' : 'primary'"
-        (click)="onConfirm()"
-      >
-        {{ data.confirmText || 'Confirm' }}
-      </button>
-    </mat-dialog-actions>
-  `,
-  styles: [`
-    h2 {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-
-      mat-icon {
-        &.danger {
-          color: #d32f2f;
-        }
-      }
-    }
-
-    mat-dialog-content {
-      color: #c8e6c9;
-    }
-  `]
+  templateUrl: './confirm-dialog.component.html',
+  styleUrls: ['./confirm-dialog.component.css']
 })
 export class ConfirmDialogComponent {
   constructor(

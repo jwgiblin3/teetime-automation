@@ -1,0 +1,98 @@
+    <div class="admin-bookings-container">
+      <div class="page-header">
+        <h1>All Bookings</h1>
+      </div>
+
+      <mat-card class="bookings-card">
+        <div *ngIf="loading" class="loading-spinner">
+          <mat-spinner diameter="50"></mat-spinner>
+        </div>
+
+        <div *ngIf="!loading">
+          <table mat-table [dataSource]="bookings" class="bookings-table">
+            <!-- User Column -->
+            <ng-container matColumnDef="user">
+              <th mat-header-cell *matHeaderCellDef>User</th>
+              <td mat-cell *matCellDef="let element">
+                <div class="user-info">
+                  <div>{{ element.userName }}</div>
+                  <div class="user-email">{{ element.userEmail }}</div>
+                </div>
+              </td>
+            </ng-container>
+
+            <!-- Course Column -->
+            <ng-container matColumnDef="course">
+              <th mat-header-cell *matHeaderCellDef>Course</th>
+              <td mat-cell *matCellDef="let element">
+                {{ element.courseName }}
+              </td>
+            </ng-container>
+
+            <!-- Date Column -->
+            <ng-container matColumnDef="date">
+              <th mat-header-cell *matHeaderCellDef>Date</th>
+              <td mat-cell *matCellDef="let element">
+                {{ element.requestedDate | date: 'MMM dd, yyyy' }}
+              </td>
+            </ng-container>
+
+            <!-- Time Column -->
+            <ng-container matColumnDef="time">
+              <th mat-header-cell *matHeaderCellDef>Time</th>
+              <td mat-cell *matCellDef="let element">
+                {{ element.preferredTime }}
+              </td>
+            </ng-container>
+
+            <!-- Players Column -->
+            <ng-container matColumnDef="players">
+              <th mat-header-cell *matHeaderCellDef>Players</th>
+              <td mat-cell *matCellDef="let element">
+                {{ element.numberOfPlayers }}
+              </td>
+            </ng-container>
+
+            <!-- Status Column -->
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let element">
+                <app-status-chip [status]="element.status"></app-status-chip>
+              </td>
+            </ng-container>
+
+            <!-- Created Column -->
+            <ng-container matColumnDef="created">
+              <th mat-header-cell *matHeaderCellDef>Created</th>
+              <td mat-cell *matCellDef="let element">
+                {{ element.createdAt | date: 'MMM dd, HH:mm' }}
+              </td>
+            </ng-container>
+
+            <!-- Actions Column -->
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef>Actions</th>
+              <td mat-cell *matCellDef="let element">
+                <button
+                  mat-icon-button
+                  matTooltip="View Details"
+                >
+                  <mat-icon>visibility</mat-icon>
+                </button>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+          </table>
+
+          <mat-paginator
+            [length]="totalBookings"
+            [pageSize]="pageSize"
+            [pageSizeOptions]="[10, 20, 50]"
+            (page)="onPageChange($event)"
+          ></mat-paginator>
+        </div>
+      </mat-card>
+    </div>
+  

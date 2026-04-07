@@ -1,0 +1,145 @@
+    <div class="admin-container">
+      <div class="admin-header">
+        <h1>Admin Dashboard</h1>
+        <div class="header-actions">
+          <button mat-button routerLink="/admin/users">
+            <mat-icon>people</mat-icon>
+            Users
+          </button>
+          <button mat-button routerLink="/admin/bookings">
+            <mat-icon>calendar_today</mat-icon>
+            Bookings
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="loading" class="loading-spinner">
+        <mat-spinner diameter="50"></mat-spinner>
+      </div>
+
+      <div *ngIf="!loading && !stats" class="empty-state">
+        <mat-icon>bar_chart</mat-icon>
+        <p>No stats available. The API may be unreachable.</p>
+      </div>
+
+      <div *ngIf="!loading && stats" class="stats-section">
+        <div class="stats-grid">
+          <mat-card class="stat-card">
+            <div class="stat-icon users">
+              <mat-icon>people</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Total Users</div>
+              <div class="stat-value">{{ stats.totalUsers }}</div>
+            </div>
+          </mat-card>
+
+          <mat-card class="stat-card">
+            <div class="stat-icon bookings">
+              <mat-icon>calendar_today</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Total Bookings</div>
+              <div class="stat-value">{{ stats.totalBookings }}</div>
+            </div>
+          </mat-card>
+
+          <mat-card class="stat-card">
+            <div class="stat-icon success">
+              <mat-icon>check_circle</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Success Rate</div>
+              <div class="stat-value">{{ stats.successRate }}%</div>
+            </div>
+          </mat-card>
+
+          <mat-card class="stat-card">
+            <div class="stat-icon active">
+              <mat-icon>sync</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Active Polls</div>
+              <div class="stat-value">{{ stats.activePolls }}</div>
+            </div>
+          </mat-card>
+
+          <mat-card class="stat-card">
+            <div class="stat-icon booked">
+              <mat-icon>done_all</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Successful Bookings</div>
+              <div class="stat-value">{{ stats.successfulBookings }}</div>
+            </div>
+          </mat-card>
+
+          <mat-card class="stat-card">
+            <div class="stat-icon failed">
+              <mat-icon>error</mat-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Failed Bookings</div>
+              <div class="stat-value">{{ stats.failedBookings }}</div>
+            </div>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Recent Activity Section -->
+      <mat-card class="activity-card" *ngIf="!loading && activityLogs.length > 0">
+        <mat-card-header>
+          <mat-card-title>Recent Activity</mat-card-title>
+        </mat-card-header>
+
+        <mat-card-content>
+          <div class="activity-feed">
+            <div class="activity-item" *ngFor="let log of activityLogs">
+              <div class="activity-icon">
+                <mat-icon [class]="log.action">
+                  {{ getActivityIcon(log.action) }}
+                </mat-icon>
+              </div>
+              <div class="activity-details">
+                <div class="activity-title">
+                  {{ getActivityTitle(log.action, log.resourceType) }}
+                </div>
+                <div class="activity-description">
+                  {{ log.resourceId }}
+                </div>
+                <div class="activity-timestamp">
+                  {{ log.timestamp | date: 'MMM dd, HH:mm' }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Quick Stats -->
+      <mat-card class="quick-stats-card" *ngIf="!loading && stats">
+        <mat-card-header>
+          <mat-card-title>Performance Metrics</mat-card-title>
+        </mat-card-header>
+
+        <mat-card-content>
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">Avg Booking Time</span>
+              <span class="metric-value">{{ stats.averageBookingTime }}m</span>
+            </div>
+
+            <div class="metric">
+              <span class="metric-label">Active Courses</span>
+              <span class="metric-value">{{ stats.successfulBookings === 0 ? 0 : (stats.successfulBookings | number) }}</span>
+            </div>
+
+            <div class="metric">
+              <span class="metric-label">Bookings/User (avg)</span>
+              <span class="metric-value">{{ stats.totalUsers > 0 ? (stats.totalBookings / stats.totalUsers | number: '1.1-1') : 0 }}</span>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  

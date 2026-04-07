@@ -1,0 +1,8 @@
+    <mat-chip
+      [class]="'status-' + status"
+      class="status-chip"
+    >
+      <mat-icon class="status-icon">{{ getStatusIcon(status) }}</mat-icon>
+      <span>{{ getStatusLabel(status) }}</span>
+    </mat-chip>
+  

@@ -5,8 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
-COPY --from=build /app/dist/teetime-automator-web /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+FROM node:20-alpine
+RUN npm install -g serve
+COPY --from=build /app/dist/teetime-automator-web /app
+CMD ["sh", "-c", "serve -s /app -l ${PORT:-3000}"]

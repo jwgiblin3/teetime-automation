@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
@@ -63,7 +63,8 @@ export class BookingCreateComponent implements OnInit {
     private fb: FormBuilder,
     private courseService: CourseService,
     private bookingService: BookingService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -110,6 +111,7 @@ export class BookingCreateComponent implements OnInit {
     this.courseService.getCourses().subscribe({
       next: (courses) => {
         this.courses = courses;
+        this.cdr.detectChanges();
       }
     });
   }

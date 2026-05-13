@@ -373,8 +373,9 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
 
             // Step 6: ReserveTeeTimes
             //   lockedTeeTimesSessionId = Guid B (from LockTeeTimes)
-            //   bookingTransactionId    = Guid A (transactionId — same as what was sent to TeeTimePrices)
-            //   transactionId           = Guid A
+            //   bookingTransactionId    = server-issued cart token from TeeTimePricesCalculation
+            //                             (NOT the same as the master transactionId)
+            //   transactionId           = Guid A (master)
             var checkoutReferer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
 
             var reservePayload = new
@@ -402,8 +403,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
                 },
                 sessionGuid             = (string?)null,
                 lockedTeeTimesSessionId,          // Guid B — from LockTeeTimes response
-                bookingTransactionId    = transactionId,  // Guid A
-                transactionId                     // Guid A
+                bookingTransactionId,             // server-issued cart token from TeeTimePricesCalculation
+                transactionId                     // Guid A (master)
             };
 
             _logger.LogInformation("CPS Golf: ReserveTeeTimes x-correlation-id = {TxId}", transactionId);
@@ -639,10 +640,10 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
         };
 
         var referer = $"{_baseUrl}/onlineresweb/teetime/checkout?id={teeSheetId}&holes=18&numberOfPlayer={players}";
-        _logger.LogInformation("CPS Golf: TeeTimePrices x-correlation-id = {TxId}", existingTransactionId);
+        _logger.LogInformation("CPS Golf: TeeTimePricesCalculation x-correlation-id = {TxId}", existingTransactionId);
         var (rawBody, response) = await CallApiRawAsync<JsonElement>(
             "POST",
-            $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePrices",
+            $"{_baseUrl}/onlineres/onlineapi/api/v1/onlinereservation/TeeTimePricesCalculation",
             payload, useShortToken: false,
             extraHeaders: new Dictionary<string, string>
             {
@@ -695,6 +696,8 @@ public class CpsGolfAdapter : IBookingAdapter, IAsyncDisposable
     {
         // If an existing ID is supplied (e.g. the one returned by TeeTimePrices) we register that;
         // otherwise we generate a fresh GUID for the server to register.
+        // The server responds 200 with body "true" on success and treats the client-supplied
+        // GUID as the registered transactionId for subsequent calls.
         var transactionId = existingId ?? Guid.NewGuid().ToString();
         try
         {

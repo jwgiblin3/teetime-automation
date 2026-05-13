@@ -19,8 +19,16 @@ using TeeTimeAutomator.API.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure Serilog
+// Suppress noisy framework logs:
+//  - Microsoft.AspNetCore.* (per-request HTTP server logs)
+//  - System.Net.Http.HttpClient.* (every outbound HTTP call's start/headers/end)
+// Application logs (CPS Golf, BookTeeTimeJob, ScheduleBookingJob, etc.) remain at Information.
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.HttpClient", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Hangfire", Serilog.Events.LogEventLevel.Warning)
     .WriteTo.Console()
     .CreateLogger();
 
@@ -55,7 +63,9 @@ builder.Services.AddHangfire(configuration =>
             {
                 DistributedLockTimeout = TimeSpan.FromSeconds(30),
                 InvisibilityTimeout    = TimeSpan.FromMinutes(30),
-                QueuePollInterval      = TimeSpan.FromSeconds(15),
+                // 2s poll = first-run booking job fires within a few seconds of submission
+                // instead of waiting up to 15s. Adjust higher if DB load is a concern.
+                QueuePollInterval      = TimeSpan.FromSeconds(2),
             }));
 
 builder.Services.AddHangfireServer();

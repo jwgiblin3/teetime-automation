@@ -127,3 +127,4 @@ deployment/*.zip
 # The real appsettings.Production.json stays out of git per the rule above.
 !deployment/appsettings.Production.template.json
 /deployment/appsettings.Production.template.json
+/api/TeeTimeAutomator.API/appsettings.json

@@ -118,3 +118,12 @@ pnpm-lock.yaml
 # Installation
 dist/
 out/
+
+# Deployment build output (assembled by deployment/deploy-ui.ps1)
+deployment/output/
+deployment/*.zip
+
+# Keep the production settings TEMPLATE tracked (placeholders only).
+# The real appsettings.Production.json stays out of git per the rule above.
+!deployment/appsettings.Production.template.json
+/deployment/appsettings.Production.template.json
